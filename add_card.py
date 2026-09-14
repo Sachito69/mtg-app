@@ -156,14 +156,39 @@ def save_card(card):
 
 
 def save_to_collection(card_id, quantity, condition, foil, container_id=None, is_missing=0):
-    """Adds a row to collection_items -- this is YOUR copy of the card. Returns its new id."""
+    """
+    Adds this card to your collection. If an identical entry already
+    exists -- same exact printing, same container, same condition, same
+    foil status, same real/missing status -- its quantity is increased
+    instead of creating a duplicate row. Returns the row's id either way.
+    """
     conn = sqlite3.connect(DB_PATH)
+    foil_value = 1 if foil else 0
+
+    existing = conn.execute(
+        """
+        SELECT id, quantity FROM collection_items
+        WHERE card_id = ? AND condition = ? AND foil = ? AND is_missing = ?
+          AND ((container_id IS NULL AND ? IS NULL) OR container_id = ?)
+        """,
+        (card_id, condition, foil_value, is_missing, container_id, container_id),
+    ).fetchone()
+
+    if existing:
+        item_id, current_qty = existing
+        conn.execute(
+            "UPDATE collection_items SET quantity = ? WHERE id = ?", (current_qty + quantity, item_id)
+        )
+        conn.commit()
+        conn.close()
+        return item_id
+
     cursor = conn.execute(
         """
         INSERT INTO collection_items (card_id, quantity, condition, foil, container_id, is_missing)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (card_id, quantity, condition, 1 if foil else 0, container_id, is_missing),
+        (card_id, quantity, condition, foil_value, container_id, is_missing),
     )
     conn.commit()
     new_id = cursor.lastrowid

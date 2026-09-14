@@ -54,35 +54,10 @@ PAGE_TEMPLATE = """
 <html>
 <head>
     <title>Card Tracker</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; }
-        h1 { font-family: Georgia, serif; }
-        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #5c4c3a; }
-        th { color: #c9b28a; font-weight: normal; font-size: 13px; }
-        img { height: 70px; border-radius: 4px; }
-        .empty { color: #c9b28a; font-style: italic; margin-top: 20px; }
-        .filter-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 14px 0; }
-        .filter-bar select { padding: 5px 8px; border-radius: 4px; border: 1px solid #5c4c3a; background: #2f2419; color: #f0e6d2; font-size: 12.5px; }
-        .filter-bar a { color: #e6c766; font-size: 12.5px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; margin-top: 18px; }
-        .card-tile { background: #2f2419; border: 1px solid #5c4c3a; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
-        .card-tile img { width: 100%; height: auto; border-radius: 0; display: block; }
-        .card-tile .no-image { height: 180px; display: flex; align-items: center; justify-content: center; color: #5c4c3a; font-size: 12px; background: #1c140f; }
-        .card-body { padding: 10px 12px 12px; flex: 1; display: flex; flex-direction: column; gap: 3px; }
-        .card-body .name { font-family: Georgia, serif; font-weight: bold; font-size: 14px; }
-        .card-body .meta { font-size: 11.5px; color: #c9b28a; }
-        .card-body .qty-row { margin-top: 6px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
-        .foil-tag { color: #e6c766; font-size: 10.5px; }
-        .location-tag { font-size: 11px; color: #8ab8c9; margin-top: 4px; }
-        .loan-tag { font-size: 11px; color: #e6c766; margin-top: 2px; }
-        .card-actions { margin-top: 8px; display: flex; gap: 8px; font-size: 12px; flex-wrap: wrap; align-items: center; }
-        .card-actions form { display: inline; }
-        .card-actions button { background: none; border: none; color: #c0392b; cursor: pointer; text-decoration: underline; padding: 0; font-size: inherit; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>Card Tracker</h1>
     <p><a href="/add" style="color:#e6c766;">+ Add a card to your collection</a></p>
     <form method="GET" class="filter-bar">
@@ -238,17 +213,10 @@ EDIT_TEMPLATE = """
 <html>
 <head>
     <title>Edit {{ item['name'] }}</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 400px; }
-        h1 { font-family: Georgia, serif; font-size: 22px; }
-        label { display: block; margin-top: 14px; font-size: 13px; color: #c9b28a; }
-        input, select { width: 100%; padding: 6px; margin-top: 4px; border-radius: 4px; border: 1px solid #5c4c3a; }
-        button { margin-top: 20px; padding: 8px 16px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
-        a { color: #e6c766; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>Edit: {{ item['name'] }}</h1>
     <form method="POST">
         <label>Quantity
@@ -358,21 +326,10 @@ SEARCH_TEMPLATE = """
 <html>
 <head>
     <title>Add a card</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 400px; }
-        h1 { font-family: Georgia, serif; font-size: 22px; }
-        input { width: 100%; padding: 8px; margin-top: 8px; border-radius: 4px; border: 1px solid #5c4c3a; box-sizing: border-box; }
-        button { margin-top: 14px; padding: 8px 16px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
-        a { color: #e6c766; }
-        .error { color: #c0392b; margin-top: 10px; }
-        .autocomplete-wrap { position: relative; }
-        .suggestions-list { position: absolute; top: 100%; left: 0; right: 0; background: #2f2419; border: 1px solid #5c4c3a; border-top: none; border-radius: 0 0 4px 4px; max-height: 220px; overflow-y: auto; z-index: 50; }
-        .suggestion-item { padding: 7px 10px; cursor: pointer; font-size: 13px; }
-        .suggestion-item:hover { background: #3a2e22; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>Add a card</h1>
     <form method="POST" action="/add">
         <input type="hidden" name="container_id" value="{{ container_id or '' }}">
@@ -429,23 +386,10 @@ QUICK_ADD_TEMPLATE = """
 <html>
 <head>
     <title>Add {{ card['name'] }}</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 420px; }
-        h1 { font-family: Georgia, serif; font-size: 20px; }
-        .quick-card { display: flex; gap: 14px; align-items: flex-start; margin-top: 10px; }
-        .quick-card img { width: 140px; border-radius: 8px; }
-        .quick-info b { font-family: Georgia, serif; font-size: 15px; }
-        .quick-info div { font-size: 12.5px; color: #c9b28a; margin-top: 3px; }
-        form.details { margin-top: 18px; }
-        label { display: block; margin-top: 10px; font-size: 13px; color: #c9b28a; }
-        input, select { width: 100%; padding: 6px; margin-top: 4px; border-radius: 4px; border: 1px solid #5c4c3a; box-sizing: border-box; }
-        button { margin-top: 16px; padding: 8px 16px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
-        a { color: #e6c766; }
-        .browse-note { font-size: 12.5px; margin-top: 14px; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>Add this card</h1>
     <div class="quick-card">
         {% if card.get('image_uris') %}<img src="{{ card['image_uris']['normal'] }}">{% endif %}
@@ -488,22 +432,10 @@ PRINTINGS_TEMPLATE = """
 <html>
 <head>
     <title>Choose a printing</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; }
-        h1 { font-family: Georgia, serif; font-size: 22px; }
-        .printing { display: flex; gap: 14px; align-items: center; border-bottom: 1px solid #5c4c3a; padding: 12px 0; }
-        .printing img { height: 90px; border-radius: 4px; }
-        .printing-info { flex: 1; }
-        .printing-info b { font-family: Georgia, serif; }
-        form.inline { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
-        form.inline input, form.inline select { padding: 4px; border-radius: 4px; border: 1px solid #5c4c3a; }
-        form.inline input[type=number] { width: 55px; }
-        button { padding: 6px 12px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
-        a { color: #e6c766; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>Printings of "{{ card_name }}"</h1>
     {% if printings %}
         {% for p in printings %}
@@ -597,44 +529,10 @@ CONTAINERS_TEMPLATE = """
 <html>
 <head>
     <title>My Collection</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 520px; }
-        h1 { font-family: Georgia, serif; font-size: 22px; }
-        h2 { font-family: Georgia, serif; font-size: 16px; margin-top: 28px; }
-        .item { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #5c4c3a; padding: 10px 0; }
-        .item a { color: #f0e6d2; text-decoration: none; font-weight: bold; }
-        .item a:hover { text-decoration: underline; }
-        .item-info { flex: 1; }
-        .kind-tag { color: #c9b28a; font-size: 12px; display: block; }
-        .options-menu { position: relative; flex-shrink: 0; }
-        .options-menu summary { list-style: none; cursor: pointer; padding: 4px 10px; color: #c9b28a; font-size: 18px; border-radius: 4px; }
-        .options-menu summary::-webkit-details-marker { display: none; }
-        .options-menu summary:hover { background: #3a2e22; }
-        .options-menu[open] summary { background: #3a2e22; }
-        .options-dropdown { position: absolute; right: 0; top: 100%; background: #2f2419; border: 1px solid #5c4c3a; border-radius: 6px; z-index: 10; min-width: 120px; overflow: hidden; }
-        .options-dropdown form { display: block; }
-        .options-dropdown button { width: 100%; text-align: left; padding: 8px 12px; background: none; border: none; color: #f0e6d2; cursor: pointer; font-size: 13px; }
-        .options-dropdown button:hover { background: #3a2e22; }
-        .options-dropdown button.danger { color: #e07a5f; }
-        input, select { width: 100%; padding: 6px; margin-top: 4px; border-radius: 4px; border: 1px solid #5c4c3a; }
-        label { display: block; margin-top: 10px; font-size: 13px; color: #c9b28a; }
-        button { margin-top: 14px; padding: 8px 16px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
-        a.back { color: #e6c766; }
-
-        /* distinct icon per container type */
-        .icon { flex-shrink: 0; width: 34px; height: 30px; position: relative; }
-        .icon-deck .cb { position: absolute; width: 18px; height: 25px; border-radius: 3px; border: 1px solid #7a6a4d; bottom: 0; }
-        .icon-deck .cb:nth-child(1) { background: #8a2f2f; left: 4px; transform: rotate(-10deg); }
-        .icon-deck .cb:nth-child(2) { background: #7a2828; left: 8px; transform: rotate(2deg); }
-        .icon-deck .cb:nth-child(3) { background: #6a2020; left: 12px; transform: rotate(12deg); }
-        .icon-binder { background: linear-gradient(135deg, #6b7690, #4a5468); border-radius: 2px 5px 5px 2px; height: 30px; width: 24px; margin-left: 5px; }
-        .icon-binder::before { content: ''; position: absolute; left: -4px; top: 5px; width: 6px; height: 6px; background: #d8d0bc; border-radius: 50%; box-shadow: 0 8px 0 #d8d0bc, 0 16px 0 #d8d0bc; }
-        .icon-box { background: linear-gradient(135deg, #a9805a, #7a5738); border-radius: 2px; height: 22px; width: 32px; margin-top: 8px; }
-        .icon-box::before { content: ''; position: absolute; top: -6px; left: -1px; width: 34px; height: 7px; background: #c39868; border-radius: 2px; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>My Collection</h1>
 
     {% if containers %}
@@ -696,20 +594,10 @@ CONTAINER_DETAIL_TEMPLATE = """
 <html>
 <head>
     <title>{{ container['name'] }}</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; }
-        h1 { font-family: Georgia, serif; }
-        .kind-tag { color: #c9b28a; font-size: 13px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #5c4c3a; }
-        th { color: #c9b28a; font-weight: normal; font-size: 13px; }
-        img { height: 70px; border-radius: 4px; }
-        a { color: #e6c766; }
-        .empty { color: #c9b28a; font-style: italic; margin-top: 20px; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>{{ container['name'] }} <span class="kind-tag">({{ container['kind'] }}{% if container['format'] %} &middot; {{ container['format'] }}{% endif %})</span></h1>
     {% if cards %}
     <table>
@@ -793,6 +681,7 @@ def duplicate_container(container_id):
         (new_name, original["kind"], original["format"]),
     )
     new_container_id = cursor.lastrowid
+    conn.commit()  # release the write lock before save_to_collection opens its own connection
 
     if original["kind"] == "deck":
         # Cloning a deck copies its card LIST as a fresh want-list, not as
@@ -801,13 +690,10 @@ def duplicate_container(container_id):
         cards = conn.execute(
             "SELECT card_id, quantity FROM collection_items WHERE container_id = ?", (container_id,)
         ).fetchall()
+        conn.close()
         for card in cards:
-            conn.execute(
-                "INSERT INTO collection_items (card_id, quantity, condition, foil, container_id, is_missing) "
-                "VALUES (?, ?, 'NM', 0, ?, 1)",
-                (card["card_id"], card["quantity"], new_container_id),
-            )
-        conn.commit()
+            save_to_collection(card["card_id"], card["quantity"], "NM", False, container_id=new_container_id, is_missing=1)
+        return redirect("/")
     # Binders and boxes duplicate as an empty container -- physically
     # duplicating real cards doesn't make sense, since you don't suddenly
     # own two of everything just because you copied the folder.
@@ -878,85 +764,10 @@ DECK_DETAIL_TEMPLATE = """
 <html>
 <head>
     <title>{{ container['name'] }}</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 700px; }
-        h1 { font-family: Georgia, serif; }
-        .kind-tag { color: #c9b28a; font-size: 13px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-        th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #5c4c3a; }
-        th { color: #c9b28a; font-weight: normal; font-size: 12.5px; }
-        img { height: 60px; border-radius: 4px; }
-        a { color: #e6c766; }
-        .empty { color: #c9b28a; font-style: italic; }
-        .missing-tag { color: #e07a5f; font-size: 11px; border: 1px solid #e07a5f; border-radius: 8px; padding: 1px 7px; }
-        .deck-search-bar { display: flex; gap: 8px; margin-top: 12px; }
-        .deck-search-bar input[type=text] { width: 100%; padding: 7px 10px; border-radius: 4px; border: 1px solid #5c4c3a; background: #2f2419; color: #f0e6d2; box-sizing: border-box; }
-        .deck-search-bar button { padding: 7px 14px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
-        .deck-bulk-links { font-size: 12px; margin-top: 6px; }
-        .deck-bulk-links a { color: #e6c766; }
-        .link-btn { background: none; border: none; color: #e6c766; cursor: pointer; font-size: 12px; padding: 0; text-decoration: underline; font-family: inherit; }
-
-        dialog.deck-modal { background: #241b15; color: #f0e6d2; border: 1px solid #5c4c3a; border-radius: 8px; padding: 20px; width: 90%; max-width: 480px; }
-        dialog.deck-modal::backdrop { background: rgba(0,0,0,0.6); }
-        dialog.deck-modal h3 { font-family: Georgia, serif; font-size: 16px; margin: 0 0 6px; }
-        .modal-hint { font-size: 12px; color: #c9b28a; margin: 0 0 10px; }
-        dialog.deck-modal textarea { width: 100%; height: 130px; padding: 8px; border-radius: 4px; border: 1px solid #5c4c3a; background: #2f2419; color: #f0e6d2; font-family: monospace; font-size: 12.5px; box-sizing: border-box; }
-        .modal-progress { font-size: 12.5px; color: #c9b28a; margin-top: 8px; }
-        .modal-results { max-height: 140px; overflow-y: auto; margin-top: 8px; }
-        .modal-result-row { font-size: 12.5px; padding: 4px 0; border-bottom: 1px solid #3a2e22; }
-        .modal-result-row.ok { color: #8ab88a; }
-        .modal-result-row.fail { color: #e07a5f; }
-        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-        .modal-actions button { padding: 7px 14px; border-radius: 4px; border: none; cursor: pointer; background: #4a3c2c; color: #f0e6d2; font-size: 13px; }
-        .modal-actions button.primary { background: #f0e6d2; color: #1c140f; }
-        .modal-actions button:disabled { opacity: 0.5; cursor: default; }
-        .autocomplete-wrap { position: relative; }
-        .suggestions-list { position: absolute; top: 100%; left: 0; right: 0; background: #2f2419; border: 1px solid #5c4c3a; border-top: none; border-radius: 0 0 4px 4px; max-height: 220px; overflow-y: auto; z-index: 50; }
-        .suggestion-item { padding: 7px 10px; cursor: pointer; font-size: 13px; text-align: left; }
-        .suggestion-item:hover { background: #3a2e22; }
-        .legality-box { border: 1px solid #5c4c3a; border-radius: 6px; padding: 12px 14px; margin-top: 16px; font-size: 13px; }
-        .legality-box h3 { font-family: Georgia, serif; font-size: 14px; margin: 0 0 6px; }
-        .legal-ok { color: #8ab88a; }
-        .legal-bad { color: #e07a5f; }
-        .legality-box ul { margin: 6px 0 0; padding-left: 18px; }
-        .sideboard-note { color: #c9b28a; font-size: 12px; margin-top: 8px; }
-        .view-switcher { margin-top: 16px; font-size: 13px; color: #c9b28a; }
-        .view-switcher select { padding: 5px 8px; border-radius: 4px; border: 1px solid #5c4c3a; background: #2f2419; color: #f0e6d2; font-size: 12.5px; margin-left: 6px; }
-
-        .type-heading { font-family: Georgia, serif; font-size: 14.5px; color: #e6c766; margin: 22px 0 6px; border-bottom: 1px solid #5c4c3a; padding-bottom: 4px; }
-        .type-heading:first-of-type { margin-top: 16px; }
-
-        .fan { display: flex; flex-direction: column; width: 260px; margin-bottom: 10px; }
-        .fan-card { position: relative; margin-top: -327px; }
-        .fan-card:first-child { margin-top: 0; }
-        .fan-card img { width: 260px; height: auto; border-radius: 10px; display: block; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-        .fan-card.stack-missing img { opacity: 0.55; }
-        .fan-missing-tag { position: absolute; top: 6px; right: 6px; }
-
-        .qty-badge { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.8); color: #fff; font-size: 13px; font-weight: bold; padding: 2px 9px; border-radius: 12px; }
-        .card-options { position: absolute; top: 4px; right: 4px; z-index: 5; }
-        .card-options summary { list-style: none; cursor: pointer; background: rgba(0,0,0,0.8); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; }
-        .card-options summary::-webkit-details-marker { display: none; }
-        .card-options .options-dropdown { position: absolute; top: 28px; right: 0; background: #2f2419; border: 1px solid #5c4c3a; border-radius: 6px; min-width: 130px; z-index: 20; overflow: hidden; }
-        .card-options .options-dropdown a, .card-options .options-dropdown button {
-            display: block; width: 100%; text-align: left; padding: 8px 12px; background: none; border: none;
-            color: #f0e6d2; text-decoration: none; cursor: pointer; font-size: 12.5px; box-sizing: border-box;
-        }
-        .card-options .options-dropdown a:hover, .card-options .options-dropdown button:hover { background: #3a2e22; }
-        .text-options-cell { position: relative; width: 30px; }
-        .text-options-cell .card-options { position: static; }
-        .text-options-cell .options-dropdown { top: 26px; right: 0; }
-        .stack-thumb { position: relative; flex-shrink: 0; }
-        .stack-thumb img { height: 160px; border-radius: 6px; display: block; }
-
-        .grid-wrap { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; margin-top: 14px; }
-        .grid-cell.stack-missing { opacity: 0.6; }
-        .grid-cell .stack-thumb img { height: auto; width: 100%; border-radius: 8px; }
-        .grid-name { font-size: 12px; text-align: center; margin-top: 5px; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>{{ container['name'] }} <span class="kind-tag">(deck{% if container['format'] %} &middot; {{ container['format'] }}{% endif %})</span></h1>
     <form class="deck-search-bar" method="POST" action="/add">
         <input type="hidden" name="container_id" value="{{ container['id'] }}">
@@ -1219,14 +1030,7 @@ MOVE_OR_MISSING_TEMPLATE = """
 <html>
 <head>
     <title>You already own this</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 440px; }
-        h1 { font-family: Georgia, serif; font-size: 19px; }
-        li { margin-bottom: 4px; }
-        button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-top: 16px; margin-right: 8px; font-size: 13px; }
-        .move-btn { background: #8ab88a; color: #1c140f; }
-        .missing-btn { background: #4a3c2c; color: #f0e6d2; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <h1>You already have {{ available }}x {{ card_name }}</h1>
@@ -1311,13 +1115,8 @@ def add_card_confirm():
     # Going into a deck: check if real copies exist elsewhere first.
     available = total_real_available(conn, card["name"])
     if available <= 0:
-        conn.execute(
-            "INSERT INTO collection_items (card_id, quantity, condition, foil, container_id, is_missing) "
-            "VALUES (?, ?, ?, ?, ?, 1)",
-            (card["id"], quantity, condition, foil, container_id),
-        )
-        conn.commit()
         conn.close()
+        save_to_collection(card["id"], quantity, condition, foil, container_id=container_id, is_missing=1)
         return redirect(f"/containers/{container_id}")
 
     sources = find_real_sources(conn, card["name"])
@@ -1349,14 +1148,9 @@ def add_card_confirm_move():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     leftover = move_real_into_deck(conn, card["name"], container_id, quantity)
-    if leftover > 0:
-        conn.execute(
-            "INSERT INTO collection_items (card_id, quantity, condition, foil, container_id, is_missing) "
-            "VALUES (?, ?, ?, ?, ?, 1)",
-            (card["id"], leftover, condition, foil, container_id),
-        )
-        conn.commit()
     conn.close()
+    if leftover > 0:
+        save_to_collection(card["id"], leftover, condition, foil, container_id=container_id, is_missing=1)
     return redirect(f"/containers/{container_id}")
 
 
@@ -1370,15 +1164,7 @@ def add_card_confirm_missing():
 
     card = fetch_card_by_id(scryfall_id)
     save_card(card)
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "INSERT INTO collection_items (card_id, quantity, condition, foil, container_id, is_missing) "
-        "VALUES (?, ?, ?, ?, ?, 1)",
-        (card["id"], quantity, condition, foil, container_id),
-    )
-    conn.commit()
-    conn.close()
+    save_to_collection(card["id"], quantity, condition, foil, container_id=container_id, is_missing=1)
     return redirect(f"/containers/{container_id}")
 
 
@@ -1387,18 +1173,10 @@ LOAN_FORM_TEMPLATE = """
 <html>
 <head>
     <title>Loan out {{ item['name'] }}</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 400px; }
-        h1 { font-family: Georgia, serif; font-size: 20px; }
-        label { display: block; margin-top: 14px; font-size: 13px; color: #c9b28a; }
-        input { width: 100%; padding: 6px; margin-top: 4px; border-radius: 4px; border: 1px solid #5c4c3a; }
-        button { margin-top: 20px; padding: 8px 16px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
-        a { color: #e6c766; }
-        .avail { color: #c9b28a; font-size: 13px; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>Loan out: {{ item['name'] }}</h1>
     <p class="avail">{{ available }} available to loan out of {{ item['quantity'] }} total (the rest is already loaned).</p>
     {% if available > 0 %}
@@ -1424,18 +1202,10 @@ LOANS_TEMPLATE = """
 <html>
 <head>
     <title>Loans</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 600px; }
-        h1 { font-family: Georgia, serif; }
-        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-        th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #5c4c3a; }
-        th { color: #c9b28a; font-weight: normal; font-size: 12.5px; }
-        button { padding: 5px 10px; background: #4a3c2c; color: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
-        .empty { color: #c9b28a; font-style: italic; margin-top: 16px; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>Loans</h1>
     {% if loans %}
     <table>
@@ -1535,28 +1305,10 @@ BULK_ADD_TEMPLATE = """
 <html>
 <head>
     <title>Bulk add cards</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 560px; }
-        h1 { font-family: Georgia, serif; font-size: 22px; }
-        label { display: block; margin-top: 14px; font-size: 13px; color: #c9b28a; }
-        textarea, select { width: 100%; padding: 8px; margin-top: 4px; border-radius: 4px; border: 1px solid #5c4c3a;
-                            background: #2f2419; color: #f0e6d2; font-family: monospace; font-size: 13px; }
-        textarea { height: 160px; }
-        button { margin-top: 14px; padding: 8px 16px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
-        button:disabled { opacity: 0.5; cursor: default; }
-        a { color: #e6c766; }
-        .hint { font-size: 12px; color: #c9b28a; margin-top: 6px; }
-        #progress { font-size: 13px; color: #c9b28a; margin-top: 16px; }
-        .result { padding: 6px 0; border-bottom: 1px solid #5c4c3a; font-size: 13px; }
-        .result.ok { color: #8ab88a; }
-        .result.fail { color: #e07a5f; }
-        .result .line { color: #c9b28a; font-family: monospace; font-size: 11.5px; display: block; }
-        .fill-note { color: #e6c766; font-size: 12px; margin-top: 4px; }
-        .fill-note button { margin-top: 4px; padding: 4px 10px; font-size: 11.5px; background: #8ab88a; color: #1c140f; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>Bulk add cards</h1>
     <form id="bulk-form">
         <label>Paste your list, one card per line
@@ -1667,19 +1419,10 @@ VERSION_PICKER_TEMPLATE = """
 <html>
 <head>
     <title>Change version</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; }
-        h1 { font-family: Georgia, serif; font-size: 22px; }
-        .printing { display: flex; gap: 14px; align-items: center; border-bottom: 1px solid #5c4c3a; padding: 12px 0; }
-        .printing img { height: 90px; border-radius: 4px; }
-        .printing-info { flex: 1; }
-        .printing-info b { font-family: Georgia, serif; }
-        button { padding: 6px 12px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; margin-top: 6px; }
-        a { color: #e6c766; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>Change version: {{ item['name'] }}</h1>
     {% if printings %}
         {% for p in printings %}
@@ -1817,19 +1560,10 @@ FILL_MISSING_TEMPLATE = """
 <html>
 <head>
     <title>Fill a missing card?</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 460px; }
-        h1 { font-family: Georgia, serif; font-size: 19px; }
-        .match { border-bottom: 1px solid #5c4c3a; padding: 12px 0; }
-        .match b { font-family: Georgia, serif; }
-        form.inline { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
-        form.inline input { width: 55px; padding: 5px; border-radius: 4px; border: 1px solid #5c4c3a; }
-        button { padding: 6px 12px; background: #8ab88a; color: #1c140f; border: none; border-radius: 4px; cursor: pointer; }
-        a { color: #e6c766; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>You added {{ quantity }}x {{ card_name }}</h1>
     <p>This card is marked MISSING in:</p>
     {% for opt in fill_options %}
@@ -1870,20 +1604,10 @@ SETTINGS_TEMPLATE = """
 <html>
 <head>
     <title>Settings</title>
-    <style>
-        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 460px; }
-        h1 { font-family: Georgia, serif; font-size: 22px; }
-        .setting-row { border-bottom: 1px solid #5c4c3a; padding: 16px 0; }
-        .setting-row label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
-        .setting-row input { margin-top: 3px; }
-        .setting-title { font-weight: bold; }
-        .setting-desc { font-size: 12.5px; color: #c9b28a; margin-top: 3px; }
-        button { margin-top: 16px; padding: 8px 16px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
-        .saved-note { color: #8ab88a; font-size: 13px; margin-top: 10px; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
     <h1>Settings</h1>
     <form method="POST">
         <div class="setting-row">
@@ -1986,13 +1710,9 @@ def bulk_edit_apply(container_id):
             if card is None:
                 results.append({"ok": False, "message": f'Could not find a card named "{name}" -- skipped'})
                 continue
-            conn.commit()  # release our write lock before save_card opens its own connection
+            conn.commit()  # release our write lock before save_card/save_to_collection open their own connections
             save_card(card)
-            conn.execute(
-                "INSERT INTO collection_items (card_id, quantity, condition, foil, container_id, is_missing) "
-                "VALUES (?, ?, 'NM', 0, ?, 1)",
-                (card["id"], qty, container_id),
-            )
+            save_to_collection(card["id"], qty, "NM", False, container_id=container_id, is_missing=1)
             results.append({"ok": True, "message": f"Added {name} ({qty}x) as missing"})
 
     conn.commit()

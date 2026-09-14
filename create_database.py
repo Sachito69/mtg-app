@@ -59,6 +59,44 @@ if had_blueprint_table:
     conn.execute("DROP TABLE deck_blueprint")
     conn.commit()
 
+# Consolidate any duplicate collection_items rows (same exact printing,
+# same container, same condition, same foil, same real/missing status) --
+# these could pile up from before cards were merged automatically, and
+# crowd the Card Tracker with near-identical tiles.
+duplicate_groups = conn.execute(
+    """
+    SELECT card_id, container_id, condition, foil, is_missing, COUNT(*) as row_count, MIN(id) as keep_id
+    FROM collection_items
+    GROUP BY card_id, container_id, condition, foil, is_missing
+    HAVING COUNT(*) > 1
+    """
+).fetchall()
+
+if duplicate_groups:
+    print(f"Consolidating {len(duplicate_groups)} group(s) of duplicate card entries...")
+    for group in duplicate_groups:
+        card_id, container_id, condition, foil, is_missing, row_count, keep_id = group
+        rows = conn.execute(
+            """
+            SELECT id, quantity FROM collection_items
+            WHERE card_id = ? AND condition = ? AND foil = ? AND is_missing = ?
+              AND ((container_id IS NULL AND ? IS NULL) OR container_id = ?)
+            """,
+            (card_id, condition, foil, is_missing, container_id, container_id),
+        ).fetchall()
+        total_qty = sum(r[1] for r in rows)
+        duplicate_ids = [r[0] for r in rows if r[0] != keep_id]
+
+        conn.execute("UPDATE collection_items SET quantity = ? WHERE id = ?", (total_qty, keep_id))
+        for dup_id in duplicate_ids:
+            # Any loan pointing at a row we're about to remove gets moved
+            # to the surviving row instead, so the loan isn't lost.
+            conn.execute(
+                "UPDATE loans SET collection_item_id = ? WHERE collection_item_id = ?", (keep_id, dup_id)
+            )
+            conn.execute("DELETE FROM collection_items WHERE id = ?", (dup_id,))
+    conn.commit()
+
 # Check it worked
 cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
 tables = [row[0] for row in cursor.fetchall()]
