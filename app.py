@@ -11,8 +11,9 @@ Press Ctrl+C in the terminal to stop it when you're done.
 """
 
 from flask import Flask, render_template_string, request, redirect, jsonify
+import re
 import sqlite3
-from add_card import search_all_printings, fetch_card_by_id, fetch_card_by_set_number, parse_bulk_line, save_card, save_to_collection
+from add_card import search_all_printings, fetch_card_by_id, fetch_card_by_name, fetch_card_by_set_number, parse_bulk_line, save_card, save_to_collection, autocomplete_card_name
 from deck_logic import find_real_sources, total_real_available, move_real_into_deck, find_decks_missing_card, fill_missing_in_deck, check_deck_legality, FORMAT_RULES
 
 app = Flask(__name__)
@@ -21,6 +22,16 @@ app = Flask(__name__)
 # decklist. Anything not in this list (unusual card types) is grouped
 # alphabetically after these.
 TYPE_ORDER = ["Creature", "Planeswalker", "Instant", "Sorcery", "Artifact", "Enchantment", "Land", "Battle"]
+
+
+def get_setting(conn, key, default=None):
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_setting(conn, key, value):
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+    conn.commit()
 
 
 def group_cards_by_type(cards):
@@ -71,7 +82,7 @@ PAGE_TEMPLATE = """
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>Card Tracker</h1>
     <p><a href="/add" style="color:#e6c766;">+ Add a card to your collection</a></p>
     <form method="GET" class="filter-bar">
@@ -237,7 +248,7 @@ EDIT_TEMPLATE = """
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>Edit: {{ item['name'] }}</h1>
     <form method="POST">
         <label>Quantity
@@ -350,25 +361,124 @@ SEARCH_TEMPLATE = """
     <style>
         body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 400px; }
         h1 { font-family: Georgia, serif; font-size: 22px; }
-        input { width: 100%; padding: 8px; margin-top: 8px; border-radius: 4px; border: 1px solid #5c4c3a; }
+        input { width: 100%; padding: 8px; margin-top: 8px; border-radius: 4px; border: 1px solid #5c4c3a; box-sizing: border-box; }
         button { margin-top: 14px; padding: 8px 16px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
         a { color: #e6c766; }
         .error { color: #c0392b; margin-top: 10px; }
+        .autocomplete-wrap { position: relative; }
+        .suggestions-list { position: absolute; top: 100%; left: 0; right: 0; background: #2f2419; border: 1px solid #5c4c3a; border-top: none; border-radius: 0 0 4px 4px; max-height: 220px; overflow-y: auto; z-index: 50; }
+        .suggestion-item { padding: 7px 10px; cursor: pointer; font-size: 13px; }
+        .suggestion-item:hover { background: #3a2e22; }
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>Add a card</h1>
     <form method="POST" action="/add">
         <input type="hidden" name="container_id" value="{{ container_id or '' }}">
         <label>Card name<br>
-            <input type="text" name="card_name" placeholder="e.g. Lightning Bolt" required autofocus>
+            <div class="autocomplete-wrap">
+                <input type="text" name="card_name" id="card-name-input" placeholder="e.g. Lightning Bolt" required autofocus autocomplete="off">
+                <div id="suggestions-box" class="suggestions-list"></div>
+            </div>
         </label>
         <button type="submit">Find printings</button>
     </form>
     {% if error %}<p class="error">{{ error }}</p>{% endif %}
     <p style="margin-top:14px;"><a href="/bulk-add">Bulk add a list of cards instead &rarr;</a></p>
     <p><a href="/tracker">&larr; Back to card tracker</a></p>
+
+<script>
+(function() {
+    const input = document.getElementById('card-name-input');
+    const box = document.getElementById('suggestions-box');
+    let debounceTimer;
+    input.addEventListener('input', function() {
+        clearTimeout(debounceTimer);
+        const q = input.value.trim();
+        if (q.length < 2) { box.innerHTML = ''; return; }
+        debounceTimer = setTimeout(async function() {
+            try {
+                const resp = await fetch('/card-suggestions?q=' + encodeURIComponent(q));
+                const names = await resp.json();
+                box.innerHTML = '';
+                names.forEach(function(name) {
+                    const item = document.createElement('div');
+                    item.className = 'suggestion-item';
+                    item.textContent = name;
+                    item.addEventListener('click', function() {
+                        input.value = name;
+                        box.innerHTML = '';
+                    });
+                    box.appendChild(item);
+                });
+            } catch (err) { box.innerHTML = ''; }
+        }, 200);
+    });
+    document.addEventListener('click', function(e) {
+        if (e.target !== input) box.innerHTML = '';
+    });
+})();
+</script>
+</body>
+</html>
+"""
+
+QUICK_ADD_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add {{ card['name'] }}</title>
+    <style>
+        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 420px; }
+        h1 { font-family: Georgia, serif; font-size: 20px; }
+        .quick-card { display: flex; gap: 14px; align-items: flex-start; margin-top: 10px; }
+        .quick-card img { width: 140px; border-radius: 8px; }
+        .quick-info b { font-family: Georgia, serif; font-size: 15px; }
+        .quick-info div { font-size: 12.5px; color: #c9b28a; margin-top: 3px; }
+        form.details { margin-top: 18px; }
+        label { display: block; margin-top: 10px; font-size: 13px; color: #c9b28a; }
+        input, select { width: 100%; padding: 6px; margin-top: 4px; border-radius: 4px; border: 1px solid #5c4c3a; box-sizing: border-box; }
+        button { margin-top: 16px; padding: 8px 16px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
+        a { color: #e6c766; }
+        .browse-note { font-size: 12.5px; margin-top: 14px; }
+    </style>
+</head>
+<body>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+    <h1>Add this card</h1>
+    <div class="quick-card">
+        {% if card.get('image_uris') %}<img src="{{ card['image_uris']['normal'] }}">{% endif %}
+        <div class="quick-info">
+            <b>{{ card['name'] }}</b>
+            <div>{{ card.get('set_name') }} ({{ card.get('set') }})</div>
+            <div>{{ card.get('type_line') }}</div>
+        </div>
+    </div>
+    <form class="details" method="POST" action="/add/confirm">
+        <input type="hidden" name="scryfall_id" value="{{ card['id'] }}">
+        <input type="hidden" name="container_id" value="{{ container_id or '' }}">
+        <label>Quantity
+            <input type="number" name="quantity" value="1" min="1">
+        </label>
+        <label>Condition
+            <select name="condition">
+                {% for c in ['NM', 'LP', 'MP', 'HP', 'DMG'] %}
+                <option value="{{ c }}">{{ c }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label><input type="checkbox" name="foil" style="width:auto;"> Foil</label>
+        <button type="submit">Add this printing</button>
+    </form>
+    <p class="browse-note">
+        <form method="POST" action="/add" style="display:inline;">
+            <input type="hidden" name="card_name" value="{{ card_name }}">
+            <input type="hidden" name="container_id" value="{{ container_id or '' }}">
+            <input type="hidden" name="force_picker" value="1">
+            <a href="#" onclick="this.closest('form').submit(); return false;">Not the right printing? Browse all versions instead &rarr;</a>
+        </form>
+    </p>
 </body>
 </html>
 """
@@ -393,7 +503,7 @@ PRINTINGS_TEMPLATE = """
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>Printings of "{{ card_name }}"</h1>
     {% if printings %}
         {% for p in printings %}
@@ -425,6 +535,18 @@ PRINTINGS_TEMPLATE = """
 """
 
 
+@app.route("/card-suggestions")
+def card_suggestions():
+    query = request.args.get("q", "").strip()
+    if len(query) < 2:
+        return jsonify([])
+    try:
+        names = autocomplete_card_name(query)
+    except Exception:
+        names = []
+    return jsonify(names)
+
+
 @app.route("/add", methods=["GET", "POST"])
 def add_card_page():
     if request.method == "GET":
@@ -432,6 +554,23 @@ def add_card_page():
 
     card_name = request.form["card_name"]
     container_id = request.form.get("container_id") or None
+    force_picker = request.form.get("force_picker") == "1"
+
+    conn = sqlite3.connect(DB_PATH)
+    auto_pick = get_setting(conn, "auto_pick_version", "true") == "true"
+    conn.close()
+
+    if auto_pick and not force_picker:
+        try:
+            card = fetch_card_by_name(card_name)
+        except Exception:
+            return render_template_string(
+                SEARCH_TEMPLATE,
+                error=f'Could not find a card named "{card_name}". Check the spelling and try again.',
+                container_id=container_id,
+            )
+        return render_template_string(QUICK_ADD_TEMPLATE, card=card, card_name=card_name, container_id=container_id)
+
     try:
         printings = search_all_printings(card_name)
     except Exception:
@@ -495,7 +634,7 @@ CONTAINERS_TEMPLATE = """
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>My Collection</h1>
 
     {% if containers %}
@@ -570,7 +709,7 @@ CONTAINER_DETAIL_TEMPLATE = """
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>{{ container['name'] }} <span class="kind-tag">({{ container['kind'] }}{% if container['format'] %} &middot; {{ container['format'] }}{% endif %})</span></h1>
     {% if cards %}
     <table>
@@ -701,10 +840,22 @@ def container_detail(container_id):
             (container_id,),
         ).fetchall()
         legality = check_deck_legality(conn, container_id, container["format"])
+        missing_rows = conn.execute(
+            """
+            SELECT card_catalog.name, SUM(collection_items.quantity) as qty
+            FROM collection_items
+            JOIN card_catalog ON collection_items.card_id = card_catalog.id
+            WHERE collection_items.container_id = ? AND collection_items.is_missing = 1
+            GROUP BY card_catalog.name
+            """,
+            (container_id,),
+        ).fetchall()
+        missing_text = "\n".join(f"{row['qty']} {row['name']}" for row in missing_rows)
         conn.close()
         grouped_cards = group_cards_by_type(cards)
         return render_template_string(
-            DECK_DETAIL_TEMPLATE, container=container, grouped_cards=grouped_cards, legality=legality
+            DECK_DETAIL_TEMPLATE, container=container, grouped_cards=grouped_cards, legality=legality,
+            missing_text=missing_text,
         )
 
     cards = conn.execute(
@@ -739,8 +890,30 @@ DECK_DETAIL_TEMPLATE = """
         .empty { color: #c9b28a; font-style: italic; }
         .missing-tag { color: #e07a5f; font-size: 11px; border: 1px solid #e07a5f; border-radius: 8px; padding: 1px 7px; }
         .deck-search-bar { display: flex; gap: 8px; margin-top: 12px; }
-        .deck-search-bar input[type=text] { flex: 1; padding: 7px 10px; border-radius: 4px; border: 1px solid #5c4c3a; background: #2f2419; color: #f0e6d2; }
+        .deck-search-bar input[type=text] { width: 100%; padding: 7px 10px; border-radius: 4px; border: 1px solid #5c4c3a; background: #2f2419; color: #f0e6d2; box-sizing: border-box; }
         .deck-search-bar button { padding: 7px 14px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
+        .deck-bulk-links { font-size: 12px; margin-top: 6px; }
+        .deck-bulk-links a { color: #e6c766; }
+        .link-btn { background: none; border: none; color: #e6c766; cursor: pointer; font-size: 12px; padding: 0; text-decoration: underline; font-family: inherit; }
+
+        dialog.deck-modal { background: #241b15; color: #f0e6d2; border: 1px solid #5c4c3a; border-radius: 8px; padding: 20px; width: 90%; max-width: 480px; }
+        dialog.deck-modal::backdrop { background: rgba(0,0,0,0.6); }
+        dialog.deck-modal h3 { font-family: Georgia, serif; font-size: 16px; margin: 0 0 6px; }
+        .modal-hint { font-size: 12px; color: #c9b28a; margin: 0 0 10px; }
+        dialog.deck-modal textarea { width: 100%; height: 130px; padding: 8px; border-radius: 4px; border: 1px solid #5c4c3a; background: #2f2419; color: #f0e6d2; font-family: monospace; font-size: 12.5px; box-sizing: border-box; }
+        .modal-progress { font-size: 12.5px; color: #c9b28a; margin-top: 8px; }
+        .modal-results { max-height: 140px; overflow-y: auto; margin-top: 8px; }
+        .modal-result-row { font-size: 12.5px; padding: 4px 0; border-bottom: 1px solid #3a2e22; }
+        .modal-result-row.ok { color: #8ab88a; }
+        .modal-result-row.fail { color: #e07a5f; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+        .modal-actions button { padding: 7px 14px; border-radius: 4px; border: none; cursor: pointer; background: #4a3c2c; color: #f0e6d2; font-size: 13px; }
+        .modal-actions button.primary { background: #f0e6d2; color: #1c140f; }
+        .modal-actions button:disabled { opacity: 0.5; cursor: default; }
+        .autocomplete-wrap { position: relative; }
+        .suggestions-list { position: absolute; top: 100%; left: 0; right: 0; background: #2f2419; border: 1px solid #5c4c3a; border-top: none; border-radius: 0 0 4px 4px; max-height: 220px; overflow-y: auto; z-index: 50; }
+        .suggestion-item { padding: 7px 10px; cursor: pointer; font-size: 13px; text-align: left; }
+        .suggestion-item:hover { background: #3a2e22; }
         .legality-box { border: 1px solid #5c4c3a; border-radius: 6px; padding: 12px 14px; margin-top: 16px; font-size: 13px; }
         .legality-box h3 { font-family: Georgia, serif; font-size: 14px; margin: 0 0 6px; }
         .legal-ok { color: #8ab88a; }
@@ -783,13 +956,21 @@ DECK_DETAIL_TEMPLATE = """
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>{{ container['name'] }} <span class="kind-tag">(deck{% if container['format'] %} &middot; {{ container['format'] }}{% endif %})</span></h1>
     <form class="deck-search-bar" method="POST" action="/add">
         <input type="hidden" name="container_id" value="{{ container['id'] }}">
-        <input type="text" name="card_name" placeholder="Search a card to add to this deck..." required>
+        <div class="autocomplete-wrap" style="flex:1;">
+            <input type="text" name="card_name" id="deck-card-name-input" placeholder="Search a card to add to this deck..." required autocomplete="off">
+            <div id="deck-suggestions-box" class="suggestions-list"></div>
+        </div>
         <button type="submit">Search</button>
     </form>
+    <p class="deck-bulk-links">
+        <button type="button" class="link-btn" onclick="document.getElementById('bulk-add-modal').showModal()">Bulk add cards to this deck</button>
+        &middot;
+        <button type="button" class="link-btn" onclick="document.getElementById('bulk-edit-modal').showModal()">Bulk edit missing cards</button>
+    </p>
 
     {% if legality %}
     <div class="legality-box">
@@ -901,12 +1082,133 @@ DECK_DETAIL_TEMPLATE = """
 
     <p style="margin-top:20px;"><a href="/">&larr; Back to containers</a></p>
 
+    <dialog id="bulk-add-modal" class="deck-modal">
+        <h3>Bulk add cards to "{{ container['name'] }}"</h3>
+        <p class="modal-hint">Format: quantity, card name, set code in parentheses, collector number. One per line.</p>
+        <textarea id="bulk-add-textarea" placeholder="1 Reckless Impulse (PLST) VOW-174&#10;1 Skullclamp (MSC) 210&#10;1 Sol Ring (MSC) 213"></textarea>
+        <div id="bulk-add-progress" class="modal-progress"></div>
+        <div id="bulk-add-results" class="modal-results"></div>
+        <div class="modal-actions">
+            <button type="button" onclick="document.getElementById('bulk-add-modal').close()">Close</button>
+            <button type="button" class="primary" id="bulk-add-submit" onclick="runBulkAdd()">Add all</button>
+        </div>
+    </dialog>
+
+    <dialog id="bulk-edit-modal" class="deck-modal">
+        <h3>Bulk edit missing cards: "{{ container['name'] }}"</h3>
+        <p class="modal-hint">This only edits this deck's MISSING (wishlist) cards -- real cards you already own here are never touched. Edit a quantity, delete a line to remove that card, or add "qty Card Name" for something new.</p>
+        <textarea id="bulk-edit-textarea">{{ missing_text }}</textarea>
+        <div id="bulk-edit-results" class="modal-results"></div>
+        <div class="modal-actions">
+            <button type="button" onclick="document.getElementById('bulk-edit-modal').close()">Close</button>
+            <button type="button" class="primary" id="bulk-edit-submit" onclick="runBulkEdit()">Apply changes</button>
+        </div>
+    </dialog>
+
+<script>
+async function runBulkAdd() {
+    const textarea = document.getElementById('bulk-add-textarea');
+    const lines = textarea.value.split('\\n').map(l => l.trim()).filter(l => l.length > 0);
+    const progressDiv = document.getElementById('bulk-add-progress');
+    const resultsDiv = document.getElementById('bulk-add-results');
+    const submitBtn = document.getElementById('bulk-add-submit');
+    resultsDiv.innerHTML = '';
+    submitBtn.disabled = true;
+
+    for (let i = 0; i < lines.length; i++) {
+        progressDiv.textContent = 'Adding ' + (i + 1) + ' of ' + lines.length + '...';
+        let result;
+        try {
+            const resp = await fetch('/bulk-add/line', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({line: lines[i], container_id: '{{ container["id"] }}'})
+            });
+            result = await resp.json();
+        } catch (err) {
+            result = {ok: false, line: lines[i], message: 'Something went wrong talking to the server.'};
+        }
+        const row = document.createElement('div');
+        row.className = 'modal-result-row ' + (result.ok ? 'ok' : 'fail');
+        row.textContent = result.message;
+        resultsDiv.appendChild(row);
+    }
+    progressDiv.textContent = 'Done -- reopen this window or refresh the page to see the updated deck.';
+    submitBtn.disabled = false;
+}
+
+async function runBulkEdit() {
+    const textarea = document.getElementById('bulk-edit-textarea');
+    const resultsDiv = document.getElementById('bulk-edit-results');
+    const submitBtn = document.getElementById('bulk-edit-submit');
+    resultsDiv.innerHTML = '';
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Applying...';
+
+    try {
+        const resp = await fetch('/containers/{{ container["id"] }}/bulk-edit/apply', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({card_list: textarea.value})
+        });
+        const data = await resp.json();
+        data.results.forEach(function(r) {
+            const row = document.createElement('div');
+            row.className = 'modal-result-row ' + (r.ok ? 'ok' : 'fail');
+            row.textContent = r.message;
+            resultsDiv.appendChild(row);
+        });
+        if (data.results.length === 0) {
+            const row = document.createElement('div');
+            row.className = 'modal-result-row ok';
+            row.textContent = 'No changes.';
+            resultsDiv.appendChild(row);
+        }
+    } catch (err) {
+        resultsDiv.textContent = 'Something went wrong talking to the server.';
+    }
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Apply changes';
+}
+</script>
+
 <script>
 function setDeckView(mode) {
     document.getElementById('view-text').style.display = (mode === 'text') ? 'block' : 'none';
     document.getElementById('view-stacks').style.display = (mode === 'stacks') ? 'block' : 'none';
     document.getElementById('view-grid').style.display = (mode === 'grid') ? 'block' : 'none';
 }
+
+(function() {
+    const input = document.getElementById('deck-card-name-input');
+    const box = document.getElementById('deck-suggestions-box');
+    let debounceTimer;
+    input.addEventListener('input', function() {
+        clearTimeout(debounceTimer);
+        const q = input.value.trim();
+        if (q.length < 2) { box.innerHTML = ''; return; }
+        debounceTimer = setTimeout(async function() {
+            try {
+                const resp = await fetch('/card-suggestions?q=' + encodeURIComponent(q));
+                const names = await resp.json();
+                box.innerHTML = '';
+                names.forEach(function(name) {
+                    const item = document.createElement('div');
+                    item.className = 'suggestion-item';
+                    item.textContent = name;
+                    item.addEventListener('click', function() {
+                        input.value = name;
+                        box.innerHTML = '';
+                    });
+                    box.appendChild(item);
+                });
+            } catch (err) { box.innerHTML = ''; }
+        }, 200);
+    });
+    document.addEventListener('click', function(e) {
+        if (e.target !== input) box.innerHTML = '';
+    });
+})();
 </script>
 </body>
 </html>
@@ -1096,7 +1398,7 @@ LOAN_FORM_TEMPLATE = """
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>Loan out: {{ item['name'] }}</h1>
     <p class="avail">{{ available }} available to loan out of {{ item['quantity'] }} total (the rest is already loaned).</p>
     {% if available > 0 %}
@@ -1133,7 +1435,7 @@ LOANS_TEMPLATE = """
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>Loans</h1>
     {% if loans %}
     <table>
@@ -1254,18 +1556,21 @@ BULK_ADD_TEMPLATE = """
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>Bulk add cards</h1>
     <form id="bulk-form">
         <label>Paste your list, one card per line
             <textarea name="card_list" id="card_list" placeholder="1 Reckless Impulse (PLST) VOW-174&#10;1 Skullclamp (MSC) 210&#10;1 Sol Ring (MSC) 213" required></textarea>
         </label>
         <p class="hint">Format: quantity, card name, set code in parentheses, collector number -- exactly like the example above. Each card is looked up by its EXACT printing, so the set code and number matter.</p>
+        {% if preselect_container_id %}
+        <p class="hint" style="color:#8ab88a;">Adding to a specific deck/binder/box (selected below) -- change it if that's not right.</p>
+        {% endif %}
         <label>Add all of these to
             <select name="container_id" id="container_id">
-                <option value="">Unsorted (Collection)</option>
+                <option value="" {% if not preselect_container_id %}selected{% endif %}>Unsorted (Collection)</option>
                 {% for c in containers %}
-                <option value="{{ c['id'] }}">{{ c['name'] }} ({{ c['kind'] }})</option>
+                <option value="{{ c['id'] }}" {% if preselect_container_id and preselect_container_id|string == c['id']|string %}selected{% endif %}>{{ c['name'] }} ({{ c['kind'] }})</option>
                 {% endfor %}
             </select>
         </label>
@@ -1374,7 +1679,7 @@ VERSION_PICKER_TEMPLATE = """
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>Change version: {{ item['name'] }}</h1>
     {% if printings %}
         {% for p in printings %}
@@ -1404,7 +1709,10 @@ def bulk_add_page():
     conn.row_factory = sqlite3.Row
     containers = conn.execute("SELECT id, name, kind FROM containers ORDER BY name").fetchall()
     conn.close()
-    return render_template_string(BULK_ADD_TEMPLATE, containers=containers)
+    preselect_container_id = request.args.get("container_id")
+    return render_template_string(
+        BULK_ADD_TEMPLATE, containers=containers, preselect_container_id=preselect_container_id
+    )
 
 
 @app.route("/bulk-add/line", methods=["POST"])
@@ -1521,7 +1829,7 @@ FILL_MISSING_TEMPLATE = """
     </style>
 </head>
 <body>
-<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;">Loans</a></div>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
     <h1>You added {{ quantity }}x {{ card_name }}</h1>
     <p>This card is marked MISSING in:</p>
     {% for opt in fill_options %}
@@ -1555,6 +1863,141 @@ def fill_missing():
     conn.close()
 
     return redirect(fallback_url)
+
+
+SETTINGS_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Settings</title>
+    <style>
+        body { font-family: sans-serif; background: #241b15; color: #f0e6d2; padding: 24px; max-width: 460px; }
+        h1 { font-family: Georgia, serif; font-size: 22px; }
+        .setting-row { border-bottom: 1px solid #5c4c3a; padding: 16px 0; }
+        .setting-row label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+        .setting-row input { margin-top: 3px; }
+        .setting-title { font-weight: bold; }
+        .setting-desc { font-size: 12.5px; color: #c9b28a; margin-top: 3px; }
+        button { margin-top: 16px; padding: 8px 16px; background: #f0e6d2; border: none; border-radius: 4px; cursor: pointer; }
+        .saved-note { color: #8ab88a; font-size: 13px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+<div style="margin-bottom:18px;padding-bottom:10px;border-bottom:1px solid #5c4c3a;font-size:13px;"><a href="/" style="color:#e6c766;text-decoration:none;margin-right:14px;">Containers</a><a href="/tracker" style="color:#e6c766;text-decoration:none;margin-right:14px;">Card Tracker</a><a href="/loans" style="color:#e6c766;text-decoration:none;margin-right:14px;">Loans</a><a href="/settings" style="color:#e6c766;text-decoration:none;">Settings</a></div>
+    <h1>Settings</h1>
+    <form method="POST">
+        <div class="setting-row">
+            <label>
+                <input type="checkbox" name="auto_pick_version" {% if auto_pick_version %}checked{% endif %}>
+                <div>
+                    <div class="setting-title">Automatically pick a printing when searching</div>
+                    <div class="setting-desc">When you add a card by name, skip straight to the default/most recent printing instead of showing every printing to choose from. You can still browse all printings from that screen if the auto-picked one isn't right. Turn this off to always see the full printing picker.</div>
+                </div>
+            </label>
+        </div>
+        <button type="submit">Save</button>
+    </form>
+    {% if saved %}<p class="saved-note">Saved.</p>{% endif %}
+</body>
+</html>
+"""
+
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings_page():
+    conn = sqlite3.connect(DB_PATH)
+    saved = False
+    if request.method == "POST":
+        set_setting(conn, "auto_pick_version", "true" if request.form.get("auto_pick_version") else "false")
+        saved = True
+    auto_pick_version = get_setting(conn, "auto_pick_version", "true") == "true"
+    conn.close()
+    return render_template_string(SETTINGS_TEMPLATE, auto_pick_version=auto_pick_version, saved=saved)
+
+
+BULK_EDIT_LINE_PATTERN = re.compile(r"^\s*(\d+)\s+(.+?)\s*$")
+
+
+@app.route("/containers/<int:container_id>/bulk-edit/apply", methods=["POST"])
+def bulk_edit_apply(container_id):
+    data = request.get_json()
+    submitted_text = data.get("card_list", "")
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    container = conn.execute("SELECT * FROM containers WHERE id = ?", (container_id,)).fetchone()
+    if container is None or container["kind"] != "deck":
+        conn.close()
+        return jsonify({"results": [{"ok": False, "message": "That deck doesn't exist."}]})
+
+    current_missing = conn.execute(
+        """
+        SELECT card_catalog.name, SUM(collection_items.quantity) as qty
+        FROM collection_items
+        JOIN card_catalog ON collection_items.card_id = card_catalog.id
+        WHERE collection_items.container_id = ? AND collection_items.is_missing = 1
+        GROUP BY card_catalog.name
+        """,
+        (container_id,),
+    ).fetchall()
+    current_by_name = {row["name"]: row["qty"] for row in current_missing}
+
+    lines = [line.strip() for line in submitted_text.splitlines() if line.strip()]
+    new_wants = {}
+    results = []
+    for line in lines:
+        match = BULK_EDIT_LINE_PATTERN.match(line)
+        if not match:
+            results.append({"ok": False, "message": f'Skipped "{line}" -- expected format: qty Card Name'})
+            continue
+        qty, name = match.groups()
+        new_wants[name] = int(qty)
+
+    for name in current_by_name:
+        if name not in new_wants:
+            conn.execute(
+                """
+                DELETE FROM collection_items
+                WHERE container_id = ? AND is_missing = 1
+                  AND card_id IN (SELECT id FROM card_catalog WHERE name = ?)
+                """,
+                (container_id, name),
+            )
+            results.append({"ok": True, "message": f"Removed {name} from the wishlist"})
+
+    for name, qty in new_wants.items():
+        if name in current_by_name:
+            if qty != current_by_name[name]:
+                conn.execute(
+                    """
+                    UPDATE collection_items SET quantity = ?
+                    WHERE container_id = ? AND is_missing = 1
+                      AND card_id IN (SELECT id FROM card_catalog WHERE name = ?)
+                    """,
+                    (qty, container_id, name),
+                )
+                results.append({"ok": True, "message": f"Updated {name} to {qty}x"})
+        else:
+            try:
+                card = fetch_card_by_name(name)
+            except Exception:
+                card = None
+            if card is None:
+                results.append({"ok": False, "message": f'Could not find a card named "{name}" -- skipped'})
+                continue
+            conn.commit()  # release our write lock before save_card opens its own connection
+            save_card(card)
+            conn.execute(
+                "INSERT INTO collection_items (card_id, quantity, condition, foil, container_id, is_missing) "
+                "VALUES (?, ?, 'NM', 0, ?, 1)",
+                (card["id"], qty, container_id),
+            )
+            results.append({"ok": True, "message": f"Added {name} ({qty}x) as missing"})
+
+    conn.commit()
+    conn.close()
+    return jsonify({"results": results})
 
 
 if __name__ == "__main__":

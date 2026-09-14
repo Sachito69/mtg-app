@@ -47,6 +47,16 @@ REQUEST_HEADERS = {
 }
 
 
+def autocomplete_card_name(query):
+    """Asks Scryfall for card name suggestions matching a partial name."""
+    q = urllib.parse.urlencode({"q": query})
+    url = f"https://api.scryfall.com/cards/autocomplete?{q}"
+    request = urllib.request.Request(url, headers=REQUEST_HEADERS)
+    with urllib.request.urlopen(request) as response:
+        result = json.loads(response.read())
+    return result.get("data", [])
+
+
 def fetch_card_by_set_number(set_code, collector_number):
     """
     Gets one card's full data using its set code and collector number --

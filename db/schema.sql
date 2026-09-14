@@ -69,3 +69,11 @@ CREATE TABLE IF NOT EXISTS loans (
     loaned_at           TEXT DEFAULT CURRENT_TIMESTAMP,
     returned_at         TEXT
 );
+
+-- settings: simple app-wide preferences (key/value). Currently just
+-- controls whether searching a card auto-picks its default printing
+-- or shows the full "choose a printing" picker.
+CREATE TABLE IF NOT EXISTS settings (
+    key     TEXT PRIMARY KEY,
+    value   TEXT
+);
