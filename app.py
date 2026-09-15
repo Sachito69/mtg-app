@@ -10,30 +10,37 @@ Then open a web browser and go to:
 Press Ctrl+C in the terminal to stop it when you're done.
 """
 
-from flask import Flask, render_template_string, request, redirect, jsonify
+from flask import (
+    Flask,
+    render_template_string,
+    request,
+    redirect,
+    jsonify,
+    session,
+    url_for,
+)
 import re
-import sqlite3
+import os
 
 from add_card import search_all_printings, fetch_card_by_id, fetch_card_by_name, fetch_card_by_set_number, parse_bulk_line, save_card, save_to_collection, autocomplete_card_name
 from deck_logic import find_real_sources, total_real_available, move_real_into_deck, find_decks_missing_card, fill_missing_in_deck, check_deck_legality, FORMAT_RULES
+from dotenv import load_dotenv
+from supabase import create_client
+
+load_dotenv()
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = Flask(__name__)
-
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
 # The order deck cards are grouped in -- matches how most players sort a
 # decklist. Anything not in this list (unusual card types) is grouped
 # alphabetically after these.
 TYPE_ORDER = ["Creature", "Planeswalker", "Instant", "Sorcery", "Artifact", "Enchantment", "Land", "Battle"]
-
-
-def get_setting(conn, key, default=None):
-    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
-    return row[0] if row else default
-
-
-def set_setting(conn, key, value):
-    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
-    conn.commit()
 
 
 def group_cards_by_type(cards):
@@ -48,7 +55,88 @@ def group_cards_by_type(cards):
 
     ordered_names = sorted(groups.keys(), key=sort_key)
     return [{"type_name": name, "cards": groups[name], "count": len(groups[name])} for name in ordered_names]
-DB_PATH = "db/mtg.sqlite3"
+
+
+def _sb():
+    """Authenticated Supabase client for the current logged-in user."""
+    client = get_user_supabase()
+    if client is None:
+        raise RuntimeError("You must be logged in.")
+    return client
+
+
+def _uid():
+    user_id = session.get("user_id")
+    if not user_id:
+        raise RuntimeError("You must be logged in.")
+    return user_id
+
+
+def _card_map(db, card_ids):
+    """Return {card_id: card_catalog row} for the supplied ids."""
+    ids = list(dict.fromkeys([x for x in card_ids if x]))
+    if not ids:
+        return {}
+    result = db.table("card_catalog").select("*").in_("id", ids).execute()
+    return {row["id"]: row for row in (result.data or [])}
+
+
+def _container_map(db):
+    result = (
+        db.table("containers")
+        .select("*")
+        .eq("user_id", _uid())
+        .execute()
+    )
+    return {row["id"]: row for row in (result.data or [])}
+
+
+def _get_container(db, container_id):
+    result = (
+        db.table("containers")
+        .select("*")
+        .eq("user_id", _uid())
+        .eq("id", container_id)
+        .limit(1)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def _get_item(db, item_id):
+    result = (
+        db.table("collection_items")
+        .select("*")
+        .eq("user_id", _uid())
+        .eq("id", item_id)
+        .limit(1)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def get_setting(db, key, default=None):
+    result = (
+        db.table("settings")
+        .select("value")
+        .eq("user_id", _uid())
+        .eq("key", key)
+        .limit(1)
+        .execute()
+    )
+    return result.data[0]["value"] if result.data else default
+
+
+def set_setting(db, key, value):
+    (
+        db.table("settings")
+        .upsert(
+            {"user_id": _uid(), "key": key, "value": value},
+            on_conflict="user_id,key",
+        )
+        .execute()
+    )
+
 
 # A simple HTML template. {{ }} are placeholders Flask fills in with real data.
 PAGE_TEMPLATE = """
@@ -131,634 +219,6 @@ PAGE_TEMPLATE = """
 </body>
 </html>
 """
-
-
-@app.route("/tracker")
-def show_collection():
-    color_filter = request.args.get("color", "all")
-    type_filter = request.args.get("ptype", "all")
-    cmc_filter = request.args.get("cmc", "all")
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # lets us access columns by name, like a dictionary
-
-    query = """
-        SELECT
-            collection_items.id,
-            card_catalog.name,
-            card_catalog.set_name,
-            card_catalog.type_line,
-            card_catalog.image_url,
-            card_catalog.colors,
-            card_catalog.cmc,
-            collection_items.quantity,
-            collection_items.condition,
-            collection_items.foil,
-            containers.name as location_name,
-            containers.kind as location_kind
-        FROM collection_items
-        JOIN card_catalog ON collection_items.card_id = card_catalog.id
-        LEFT JOIN containers ON collection_items.container_id = containers.id
-        WHERE (collection_items.is_missing = 0 OR collection_items.is_missing IS NULL)
-    """
-    params = []
-
-    if color_filter == "C":
-        query += " AND card_catalog.colors = '[]'"
-    elif color_filter == "M":
-        query += " AND card_catalog.colors LIKE '%,%'"  # more than one color listed = multicolor
-    elif color_filter != "all":
-        query += " AND card_catalog.colors LIKE ?"
-        params.append(f'%"{color_filter}"%')
-
-    if type_filter != "all":
-        query += " AND card_catalog.type_line LIKE ?"
-        params.append(f"{type_filter}%")
-
-    if cmc_filter == "7+":
-        query += " AND card_catalog.cmc >= 7"
-    elif cmc_filter != "all":
-        query += " AND card_catalog.cmc = ?"
-        params.append(int(cmc_filter))
-
-    query += " ORDER BY card_catalog.name"
-    rows = conn.execute(query, params).fetchall()
-
-    # Build the list of types actually present, for the filter dropdown
-    all_type_rows = conn.execute(
-        """
-        SELECT DISTINCT card_catalog.type_line
-        FROM collection_items
-        JOIN card_catalog ON collection_items.card_id = card_catalog.id
-        WHERE collection_items.is_missing = 0 OR collection_items.is_missing IS NULL
-        """
-    ).fetchall()
-    primary_types = sorted(set(row["type_line"].split(" \u2014 ")[0] for row in all_type_rows if row["type_line"]))
-
-    # Figure out which of these cards currently have an active loan against them
-    active_loans = conn.execute(
-        "SELECT collection_item_id, borrower_name, quantity_out FROM loans WHERE returned_at IS NULL"
-    ).fetchall()
-    loans_by_item = {}
-    for loan in active_loans:
-        loans_by_item.setdefault(loan["collection_item_id"], []).append(loan)
-
-    conn.close()
-    return render_template_string(
-        PAGE_TEMPLATE, cards=rows, loans_by_item=loans_by_item, primary_types=primary_types,
-        color_filter=color_filter, type_filter=type_filter, cmc_filter=cmc_filter,
-    )
-
-
-EDIT_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Edit {{ item['name'] }}</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
-    <h1>Edit: {{ item['name'] }}</h1>
-    <form method="POST">
-        <label>Quantity
-            <input type="number" name="quantity" value="{{ item['quantity'] }}" min="0" required>
-        </label>
-        <label>Condition
-            <select name="condition">
-                {% for c in ['NM', 'LP', 'MP', 'HP', 'DMG'] %}
-                <option value="{{ c }}" {% if item['condition'] == c %}selected{% endif %}>{{ c }}</option>
-                {% endfor %}
-            </select>
-        </label>
-        <label>
-            <input type="checkbox" name="foil" style="width:auto;" {% if item['foil'] %}checked{% endif %}>
-            Foil
-        </label>
-        <label>Container
-            <select name="container_id">
-                <option value="">Unsorted</option>
-                {% for c in containers %}
-                <option value="{{ c['id'] }}" {% if item['container_id'] == c['id'] %}selected{% endif %}>{{ c['name'] }} ({{ c['kind'] }})</option>
-                {% endfor %}
-            </select>
-        </label>
-        <button type="submit">Save changes</button>
-    </form>
-    <p style="margin-top:10px;"><a href="/edit/{{ item['id'] }}/version">Change version / printing</a></p>
-    <p><a href="/tracker">&larr; Back to card tracker</a></p>
-</body>
-</html>
-"""
-
-
-@app.route("/edit/<int:item_id>", methods=["GET", "POST"])
-def edit_item(item_id):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-
-    if request.method == "POST":
-        quantity = int(request.form["quantity"])
-        condition = request.form["condition"]
-        foil = 1 if request.form.get("foil") else 0
-        container_id = request.form.get("container_id") or None
-        conn.execute(
-            "UPDATE collection_items SET quantity = ?, condition = ?, foil = ?, container_id = ? WHERE id = ?",
-            (quantity, condition, foil, container_id, item_id),
-        )
-        conn.commit()
-        conn.close()
-        return redirect("/tracker")
-
-    item = conn.execute(
-        """
-        SELECT collection_items.id, collection_items.quantity, collection_items.condition,
-               collection_items.foil, collection_items.container_id, card_catalog.name
-        FROM collection_items
-        JOIN card_catalog ON collection_items.card_id = card_catalog.id
-        WHERE collection_items.id = ?
-        """,
-        (item_id,),
-    ).fetchone()
-    containers = conn.execute("SELECT id, name, kind FROM containers ORDER BY name").fetchall()
-    conn.close()
-
-    if item is None:
-        return "That collection item doesn't exist.", 404
-
-    return render_template_string(EDIT_TEMPLATE, item=item, containers=containers)
-
-
-@app.route("/delete/<int:item_id>", methods=["POST"])
-def delete_item(item_id):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("DELETE FROM collection_items WHERE id = ?", (item_id,))
-    conn.commit()
-    conn.close()
-    return redirect("/tracker")
-
-
-@app.route("/item/<int:item_id>/increment", methods=["POST"])
-def increment_item(item_id):
-    next_url = request.form.get("next") or "/tracker"
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("UPDATE collection_items SET quantity = quantity + 1 WHERE id = ?", (item_id,))
-    conn.commit()
-    conn.close()
-    return redirect(next_url)
-
-
-@app.route("/item/<int:item_id>/decrement", methods=["POST"])
-def decrement_item(item_id):
-    next_url = request.form.get("next") or "/tracker"
-    conn = sqlite3.connect(DB_PATH)
-    row = conn.execute("SELECT quantity FROM collection_items WHERE id = ?", (item_id,)).fetchone()
-    if row:
-        if row[0] <= 1:
-            conn.execute("DELETE FROM collection_items WHERE id = ?", (item_id,))
-        else:
-            conn.execute("UPDATE collection_items SET quantity = quantity - 1 WHERE id = ?", (item_id,))
-        conn.commit()
-    conn.close()
-    return redirect(next_url)
-
-
-SEARCH_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Add a card</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
-    <h1>Add a card</h1>
-    <form method="POST" action="/add">
-        <input type="hidden" name="container_id" value="{{ container_id or '' }}">
-        <label>Card name<br>
-            <div class="autocomplete-wrap">
-                <input type="text" name="card_name" id="card-name-input" placeholder="e.g. Lightning Bolt" required autofocus autocomplete="off">
-                <div id="suggestions-box" class="suggestions-list"></div>
-            </div>
-        </label>
-        <button type="submit">Find printings</button>
-    </form>
-    {% if error %}<p class="error">{{ error }}</p>{% endif %}
-    <p style="margin-top:14px;"><a href="/bulk-add">Bulk add a list of cards instead &rarr;</a></p>
-    <p><a href="/tracker">&larr; Back to card tracker</a></p>
-
-<script>
-(function() {
-    const input = document.getElementById('card-name-input');
-    const box = document.getElementById('suggestions-box');
-    let debounceTimer;
-    input.addEventListener('input', function() {
-        clearTimeout(debounceTimer);
-        const q = input.value.trim();
-        if (q.length < 2) { box.innerHTML = ''; return; }
-        debounceTimer = setTimeout(async function() {
-            try {
-                const resp = await fetch('/card-suggestions?q=' + encodeURIComponent(q));
-                const names = await resp.json();
-                box.innerHTML = '';
-                names.forEach(function(name) {
-                    const item = document.createElement('div');
-                    item.className = 'suggestion-item';
-                    item.textContent = name;
-                    item.addEventListener('click', function() {
-                        input.value = name;
-                        box.innerHTML = '';
-                    });
-                    box.appendChild(item);
-                });
-            } catch (err) { box.innerHTML = ''; }
-        }, 200);
-    });
-    document.addEventListener('click', function(e) {
-        if (e.target !== input) box.innerHTML = '';
-    });
-})();
-</script>
-</body>
-</html>
-"""
-
-QUICK_ADD_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Add {{ card['name'] }}</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
-    <h1>Add this card</h1>
-    <div class="quick-card">
-        {% if card.get('image_uris') %}<img src="{{ card['image_uris']['normal'] }}">{% endif %}
-        <div class="quick-info">
-            <b>{{ card['name'] }}</b>
-            <div>{{ card.get('set_name') }} ({{ card.get('set') }})</div>
-            <div>{{ card.get('type_line') }}</div>
-        </div>
-    </div>
-    <form class="details" method="POST" action="/add/confirm">
-        <input type="hidden" name="scryfall_id" value="{{ card['id'] }}">
-        <input type="hidden" name="container_id" value="{{ container_id or '' }}">
-        <label>Quantity
-            <input type="number" name="quantity" value="1" min="1">
-        </label>
-        <label>Condition
-            <select name="condition">
-                {% for c in ['NM', 'LP', 'MP', 'HP', 'DMG'] %}
-                <option value="{{ c }}">{{ c }}</option>
-                {% endfor %}
-            </select>
-        </label>
-        <label><input type="checkbox" name="foil" style="width:auto;"> Foil</label>
-        <button type="submit">Add this printing</button>
-    </form>
-    <p class="browse-note">
-        <form method="POST" action="/add" style="display:inline;">
-            <input type="hidden" name="card_name" value="{{ card_name }}">
-            <input type="hidden" name="container_id" value="{{ container_id or '' }}">
-            <input type="hidden" name="force_picker" value="1">
-            <a href="#" onclick="this.closest('form').submit(); return false;">Not the right printing? Browse all versions instead &rarr;</a>
-        </form>
-    </p>
-</body>
-</html>
-"""
-
-PRINTINGS_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Choose a printing</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
-    <h1>Printings of "{{ card_name }}"</h1>
-    {% if printings %}
-        {% for p in printings %}
-        <div class="printing">
-            {% if p['image_uris'] %}<img src="{{ p['image_uris']['small'] }}">{% endif %}
-            <div class="printing-info">
-                <div><b>{{ p['set_name'] }}</b> ({{ p['set'] }}) &mdash; {{ p['released_at'] }}</div>
-                <form class="inline" method="POST" action="/add/confirm">
-                    <input type="hidden" name="scryfall_id" value="{{ p['id'] }}">
-                    <input type="hidden" name="container_id" value="{{ container_id or '' }}">
-                    Qty <input type="number" name="quantity" value="1" min="1">
-                    <select name="condition">
-                        {% for c in ['NM', 'LP', 'MP', 'HP', 'DMG'] %}
-                        <option value="{{ c }}">{{ c }}</option>
-                        {% endfor %}
-                    </select>
-                    <label><input type="checkbox" name="foil" style="width:auto;"> Foil</label>
-                    <button type="submit">Add this version</button>
-                </form>
-            </div>
-        </div>
-        {% endfor %}
-    {% else %}
-        <p>No printings found.</p>
-    {% endif %}
-    <p><a href="/add">&larr; Search a different card</a></p>
-</body>
-</html>
-"""
-
-
-@app.route("/card-suggestions")
-def card_suggestions():
-    query = request.args.get("q", "").strip()
-    if len(query) < 2:
-        return jsonify([])
-    try:
-        names = autocomplete_card_name(query)
-    except Exception:
-        names = []
-    return jsonify(names)
-
-
-@app.route("/add", methods=["GET", "POST"])
-def add_card_page():
-    if request.method == "GET":
-        return render_template_string(SEARCH_TEMPLATE, error=None, container_id=request.args.get("container_id"))
-
-    card_name = request.form["card_name"]
-    container_id = request.form.get("container_id") or None
-    force_picker = request.form.get("force_picker") == "1"
-
-    conn = sqlite3.connect(DB_PATH)
-    auto_pick = get_setting(conn, "auto_pick_version", "true") == "true"
-    conn.close()
-
-    if auto_pick and not force_picker:
-        try:
-            card = fetch_card_by_name(card_name)
-        except Exception:
-            return render_template_string(
-                SEARCH_TEMPLATE,
-                error=f'Could not find a card named "{card_name}". Check the spelling and try again.',
-                container_id=container_id,
-            )
-        return render_template_string(QUICK_ADD_TEMPLATE, card=card, card_name=card_name, container_id=container_id)
-
-    try:
-        printings = search_all_printings(card_name)
-    except Exception:
-        return render_template_string(
-            SEARCH_TEMPLATE,
-            error=f'Could not find a card named "{card_name}". Check the spelling and try again.',
-            container_id=container_id,
-        )
-
-    if not printings:
-        return render_template_string(
-            SEARCH_TEMPLATE,
-            error=f'Could not find a card named "{card_name}". Check the spelling and try again.',
-            container_id=container_id,
-        )
-
-    return render_template_string(
-        PRINTINGS_TEMPLATE, card_name=card_name, printings=printings, container_id=container_id
-    )
-
-
-CONTAINERS_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>My Collection</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
-    <h1>My Collection</h1>
-
-    {% if containers %}
-    {% for c in containers %}
-    <div class="item">
-        <div class="icon icon-{{ c['kind'] }}">
-            {% if c['kind'] == 'deck' %}<div class="cb"></div><div class="cb"></div><div class="cb"></div>{% endif %}
-        </div>
-        <div class="item-info">
-            <a href="/containers/{{ c['id'] }}">{{ c['name'] }}</a>
-            <span class="kind-tag">{{ c['kind'] }}{% if c['format'] %} &middot; {{ c['format'] }}{% endif %} &mdash; {{ c['card_count'] }} cards</span>
-        </div>
-        <details class="options-menu">
-            <summary>&#8942;</summary>
-            <div class="options-dropdown">
-                <form method="POST" action="/containers/{{ c['id'] }}/duplicate">
-                    <button type="submit">Duplicate</button>
-                </form>
-                <form method="POST" action="/containers/{{ c['id'] }}/delete"
-                      onsubmit="return confirm('Delete \'{{ c['name'] }}\'? Real cards inside will move to Unsorted, not be deleted.');">
-                    <button type="submit" class="danger">Delete</button>
-                </form>
-            </div>
-        </details>
-    </div>
-    {% endfor %}
-    {% else %}
-    <p style="color:#c9b28a; font-style:italic;">You haven't made any binders, boxes, or decks yet.</p>
-    {% endif %}
-
-    <h2>Create a new one</h2>
-    <form method="POST" action="/">
-        <label>Name
-            <input type="text" name="name" placeholder="e.g. Modern Staples" required>
-        </label>
-        <label>Type
-            <select name="kind" id="kind-select" onchange="document.getElementById('format-field').style.display = this.value === 'deck' ? 'block' : 'none';">
-                <option value="binder">Binder</option>
-                <option value="box">Box</option>
-                <option value="deck">Deck</option>
-            </select>
-        </label>
-        <label id="format-field" style="display:none;">Format (decks only)
-            <select name="format">
-                {% for f in formats %}
-                <option value="{{ f }}">{{ f }}</option>
-                {% endfor %}
-                <option value="Casual">Casual / Other</option>
-            </select>
-        </label>
-        <button type="submit">Create</button>
-    </form>
-</body>
-</html>
-"""
-
-CONTAINER_DETAIL_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>{{ container['name'] }}</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
-    <h1>{{ container['name'] }} <span class="kind-tag">({{ container['kind'] }}{% if container['format'] %} &middot; {{ container['format'] }}{% endif %})</span></h1>
-    {% if cards %}
-    <table>
-        <tr><th>Image</th><th>Name</th><th>Set</th><th>Qty</th><th>Condition</th></tr>
-        {% for card in cards %}
-        <tr>
-            <td>{% if card['image_url'] %}<img src="{{ card['image_url'] }}">{% endif %}</td>
-            <td>{{ card['name'] }}</td>
-            <td>{{ card['set_name'] }}</td>
-            <td>{{ card['quantity'] }}</td>
-            <td>{{ card['condition'] }}</td>
-        </tr>
-        {% endfor %}
-    </table>
-    {% else %}
-    <p class="empty">Nothing filed here yet. Edit a card in your collection and assign it to this container.</p>
-    {% endif %}
-    <p style="margin-top:20px;"><a href="/">&larr; Back to containers</a></p>
-</body>
-</html>
-"""
-
-
-@app.route("/", methods=["GET", "POST"])
-def containers_page():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-
-    if request.method == "POST":
-        name = request.form["name"]
-        kind = request.form["kind"]
-        format_ = request.form.get("format") or None
-        conn.execute(
-            "INSERT INTO containers (name, kind, format) VALUES (?, ?, ?)",
-            (name, kind, format_ if kind == "deck" else None),
-        )
-        conn.commit()
-        conn.close()
-        return redirect("/")
-
-    containers = conn.execute(
-        """
-        SELECT containers.*, COUNT(collection_items.id) as card_count
-        FROM containers
-        LEFT JOIN collection_items ON collection_items.container_id = containers.id
-        GROUP BY containers.id
-        ORDER BY containers.name
-        """
-    ).fetchall()
-    conn.close()
-    return render_template_string(CONTAINERS_TEMPLATE, containers=containers, formats=list(FORMAT_RULES.keys()))
-
-
-@app.route("/containers/<int:container_id>/delete", methods=["POST"])
-def delete_container(container_id):
-    conn = sqlite3.connect(DB_PATH)
-    # Missing placeholders aren't real cards -- just remove them.
-    conn.execute("DELETE FROM collection_items WHERE container_id = ? AND is_missing = 1", (container_id,))
-    # Real cards move to Unsorted instead of being deleted -- deleting a
-    # binder/box/deck shouldn't destroy cards you actually own.
-    conn.execute("UPDATE collection_items SET container_id = NULL WHERE container_id = ?", (container_id,))
-    conn.execute("DELETE FROM containers WHERE id = ?", (container_id,))
-    conn.commit()
-    conn.close()
-    return redirect("/")
-
-
-@app.route("/containers/<int:container_id>/duplicate", methods=["POST"])
-def duplicate_container(container_id):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-
-    original = conn.execute("SELECT * FROM containers WHERE id = ?", (container_id,)).fetchone()
-    if original is None:
-        conn.close()
-        return redirect("/")
-
-    new_name = f"{original['name']} (copy)"
-    cursor = conn.execute(
-        "INSERT INTO containers (name, kind, format) VALUES (?, ?, ?)",
-        (new_name, original["kind"], original["format"]),
-    )
-    new_container_id = cursor.lastrowid
-    conn.commit()  # release the write lock before save_to_collection opens its own connection
-
-    if original["kind"] == "deck":
-        # Cloning a deck copies its card LIST as a fresh want-list, not as
-        # claimed ownership -- duplicating a deck shouldn't make it look
-        # like you suddenly own twice as many real cards.
-        cards = conn.execute(
-            "SELECT card_id, quantity FROM collection_items WHERE container_id = ?", (container_id,)
-        ).fetchall()
-        conn.close()
-        for card in cards:
-            save_to_collection(card["card_id"], card["quantity"], "NM", False, container_id=new_container_id, is_missing=1)
-        return redirect("/")
-    # Binders and boxes duplicate as an empty container -- physically
-    # duplicating real cards doesn't make sense, since you don't suddenly
-    # own two of everything just because you copied the folder.
-
-    conn.close()
-    return redirect("/")
-
-
-@app.route("/containers/<int:container_id>")
-def container_detail(container_id):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-
-    container = conn.execute("SELECT * FROM containers WHERE id = ?", (container_id,)).fetchone()
-    if container is None:
-        conn.close()
-        return "That container doesn't exist.", 404
-
-    if container["kind"] == "deck":
-        cards = conn.execute(
-            """
-            SELECT collection_items.id as item_id,
-                   card_catalog.name, card_catalog.set_name, card_catalog.image_url, card_catalog.type_line,
-                   collection_items.quantity, collection_items.condition, collection_items.is_missing
-            FROM collection_items
-            JOIN card_catalog ON collection_items.card_id = card_catalog.id
-            WHERE collection_items.container_id = ?
-            ORDER BY collection_items.is_missing ASC, card_catalog.name
-            """,
-            (container_id,),
-        ).fetchall()
-        legality = check_deck_legality(conn, container_id, container["format"])
-        missing_rows = conn.execute(
-            """
-            SELECT card_catalog.name, SUM(collection_items.quantity) as qty
-            FROM collection_items
-            JOIN card_catalog ON collection_items.card_id = card_catalog.id
-            WHERE collection_items.container_id = ? AND collection_items.is_missing = 1
-            GROUP BY card_catalog.name
-            """,
-            (container_id,),
-        ).fetchall()
-        missing_text = "\n".join(f"{row['qty']} {row['name']}" for row in missing_rows)
-        conn.close()
-        grouped_cards = group_cards_by_type(cards)
-        return render_template_string(
-            DECK_DETAIL_TEMPLATE, container=container, grouped_cards=grouped_cards, legality=legality,
-            missing_text=missing_text,
-        )
-
-    cards = conn.execute(
-        """
-        SELECT card_catalog.name, card_catalog.set_name, card_catalog.image_url,
-               collection_items.quantity, collection_items.condition
-        FROM collection_items
-        JOIN card_catalog ON collection_items.card_id = card_catalog.id
-        WHERE collection_items.container_id = ?
-        ORDER BY card_catalog.name
-        """,
-        (container_id,),
-    ).fetchall()
-    conn.close()
-    return render_template_string(CONTAINER_DETAIL_TEMPLATE, container=container, cards=cards)
 
 
 DECK_DETAIL_TEMPLATE = """
@@ -1027,6 +487,47 @@ function setDeckView(mode) {
 </html>
 """
 
+EDIT_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Edit {{ item['name'] }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+    <h1>Edit: {{ item['name'] }}</h1>
+    <form method="POST">
+        <label>Quantity
+            <input type="number" name="quantity" value="{{ item['quantity'] }}" min="0" required>
+        </label>
+        <label>Condition
+            <select name="condition">
+                {% for c in ['NM', 'LP', 'MP', 'HP', 'DMG'] %}
+                <option value="{{ c }}" {% if item['condition'] == c %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <input type="checkbox" name="foil" style="width:auto;" {% if item['foil'] %}checked{% endif %}>
+            Foil
+        </label>
+        <label>Container
+            <select name="container_id">
+                <option value="">Unsorted</option>
+                {% for c in containers %}
+                <option value="{{ c['id'] }}" {% if item['container_id'] == c['id'] %}selected{% endif %}>{{ c['name'] }} ({{ c['kind'] }})</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button type="submit">Save changes</button>
+    </form>
+    <p style="margin-top:10px;"><a href="/edit/{{ item['id'] }}/version">Change version / printing</a></p>
+    <p><a href="/tracker">&larr; Back to card tracker</a></p>
+</body>
+</html>
+"""
+
 MOVE_OR_MISSING_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -1063,45 +564,755 @@ MOVE_OR_MISSING_TEMPLATE = """
 </html>
 """
 
+PRINTINGS_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Choose a printing</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+    <h1>Printings of "{{ card_name }}"</h1>
+    {% if printings %}
+        {% for p in printings %}
+        <div class="printing">
+            {% if p['image_uris'] %}<img src="{{ p['image_uris']['small'] }}">{% endif %}
+            <div class="printing-info">
+                <div><b>{{ p['set_name'] }}</b> ({{ p['set'] }}) &mdash; {{ p['released_at'] }}</div>
+                <form class="inline" method="POST" action="/add/confirm">
+                    <input type="hidden" name="scryfall_id" value="{{ p['id'] }}">
+                    <input type="hidden" name="container_id" value="{{ container_id or '' }}">
+                    Qty <input type="number" name="quantity" value="1" min="1">
+                    <select name="condition">
+                        {% for c in ['NM', 'LP', 'MP', 'HP', 'DMG'] %}
+                        <option value="{{ c }}">{{ c }}</option>
+                        {% endfor %}
+                    </select>
+                    <label><input type="checkbox" name="foil" style="width:auto;"> Foil</label>
+                    <button type="submit">Add this version</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p>No printings found.</p>
+    {% endif %}
+    <p><a href="/add">&larr; Search a different card</a></p>
+</body>
+</html>
+"""
+
+QUICK_ADD_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add {{ card['name'] }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+    <h1>Add this card</h1>
+    <div class="quick-card">
+        {% if card.get('image_uris') %}<img src="{{ card['image_uris']['normal'] }}">{% endif %}
+        <div class="quick-info">
+            <b>{{ card['name'] }}</b>
+            <div>{{ card.get('set_name') }} ({{ card.get('set') }})</div>
+            <div>{{ card.get('type_line') }}</div>
+        </div>
+    </div>
+    <form class="details" method="POST" action="/add/confirm">
+        <input type="hidden" name="scryfall_id" value="{{ card['id'] }}">
+        <input type="hidden" name="container_id" value="{{ container_id or '' }}">
+        <label>Quantity
+            <input type="number" name="quantity" value="1" min="1">
+        </label>
+        <label>Condition
+            <select name="condition">
+                {% for c in ['NM', 'LP', 'MP', 'HP', 'DMG'] %}
+                <option value="{{ c }}">{{ c }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label><input type="checkbox" name="foil" style="width:auto;"> Foil</label>
+        <button type="submit">Add this printing</button>
+    </form>
+    <p class="browse-note">
+        <form method="POST" action="/add" style="display:inline;">
+            <input type="hidden" name="card_name" value="{{ card_name }}">
+            <input type="hidden" name="container_id" value="{{ container_id or '' }}">
+            <input type="hidden" name="force_picker" value="1">
+            <a href="#" onclick="this.closest('form').submit(); return false;">Not the right printing? Browse all versions instead &rarr;</a>
+        </form>
+    </p>
+</body>
+</html>
+"""
+
+SEARCH_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add a card</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+    <h1>Add a card</h1>
+    <form method="POST" action="/add">
+        <input type="hidden" name="container_id" value="{{ container_id or '' }}">
+        <label>Card name<br>
+            <div class="autocomplete-wrap">
+                <input type="text" name="card_name" id="card-name-input" placeholder="e.g. Lightning Bolt" required autofocus autocomplete="off">
+                <div id="suggestions-box" class="suggestions-list"></div>
+            </div>
+        </label>
+        <button type="submit">Find printings</button>
+    </form>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <p style="margin-top:14px;"><a href="/bulk-add">Bulk add a list of cards instead &rarr;</a></p>
+    <p><a href="/tracker">&larr; Back to card tracker</a></p>
+
+<script>
+(function() {
+    const input = document.getElementById('card-name-input');
+    const box = document.getElementById('suggestions-box');
+    let debounceTimer;
+    input.addEventListener('input', function() {
+        clearTimeout(debounceTimer);
+        const q = input.value.trim();
+        if (q.length < 2) { box.innerHTML = ''; return; }
+        debounceTimer = setTimeout(async function() {
+            try {
+                const resp = await fetch('/card-suggestions?q=' + encodeURIComponent(q));
+                const names = await resp.json();
+                box.innerHTML = '';
+                names.forEach(function(name) {
+                    const item = document.createElement('div');
+                    item.className = 'suggestion-item';
+                    item.textContent = name;
+                    item.addEventListener('click', function() {
+                        input.value = name;
+                        box.innerHTML = '';
+                    });
+                    box.appendChild(item);
+                });
+            } catch (err) { box.innerHTML = ''; }
+        }, 200);
+    });
+    document.addEventListener('click', function(e) {
+        if (e.target !== input) box.innerHTML = '';
+    });
+})();
+</script>
+</body>
+</html>
+"""
+
+SETTINGS_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Settings</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+    <h1>Settings</h1>
+    <form method="POST">
+        <div class="setting-row">
+            <label>
+                <input type="checkbox" name="auto_pick_version" {% if auto_pick_version %}checked{% endif %}>
+                <div>
+                    <div class="setting-title">Automatically pick a printing when searching</div>
+                    <div class="setting-desc">When you add a card by name, skip straight to the default/most recent printing instead of showing every printing to choose from. You can still browse all printings from that screen if the auto-picked one isn't right. Turn this off to always see the full printing picker.</div>
+                </div>
+            </label>
+        </div>
+        <button type="submit">Save</button>
+    </form>
+    {% if saved %}<p class="saved-note">Saved.</p>{% endif %}
+</body>
+</html>
+"""
+
+@app.route("/tracker")
+def show_collection():
+    color_filter = request.args.get("color", "all")
+    type_filter = request.args.get("ptype", "all")
+    cmc_filter = request.args.get("cmc", "all")
+
+    db = _sb()
+    uid = _uid()
+
+    item_result = (
+        db.table("collection_items")
+        .select("*")
+        .eq("user_id", uid)
+        .eq("is_missing", False)
+        .execute()
+    )
+    items = item_result.data or []
+    cards = _card_map(db, [item["card_id"] for item in items])
+    containers = _container_map(db)
+
+    rows = []
+    primary_types_set = set()
+
+    for item in items:
+        card = cards.get(item["card_id"])
+        if not card:
+            continue
+
+        type_line = card.get("type_line") or ""
+        if type_line:
+            primary_types_set.add(type_line.split(" — ")[0])
+
+        colors = card.get("colors") or []
+        cmc = card.get("cmc")
+
+        if color_filter == "C" and colors:
+            continue
+        if color_filter == "M" and len(colors) <= 1:
+            continue
+        if color_filter not in ("all", "C", "M") and color_filter not in colors:
+            continue
+
+        if type_filter != "all" and not type_line.startswith(type_filter):
+            continue
+
+        if cmc_filter == "7+":
+            if cmc is None or float(cmc) < 7:
+                continue
+        elif cmc_filter != "all":
+            if cmc is None or float(cmc) != int(cmc_filter):
+                continue
+
+        container = containers.get(item.get("container_id"))
+        rows.append({
+            "id": item["id"],
+            "name": card.get("name"),
+            "set_name": card.get("set_name"),
+            "type_line": type_line,
+            "image_url": card.get("image_url"),
+            "colors": colors,
+            "cmc": cmc,
+            "quantity": item["quantity"],
+            "condition": item["condition"],
+            "foil": item["foil"],
+            "location_name": container.get("name") if container else None,
+            "location_kind": container.get("kind") if container else None,
+        })
+
+    rows.sort(key=lambda row: (row.get("name") or "").lower())
+    primary_types = sorted(primary_types_set)
+
+    loan_result = (
+        db.table("loans")
+        .select("collection_item_id, borrower_name, quantity_out")
+        .eq("user_id", uid)
+        .is_("returned_at", "null")
+        .execute()
+    )
+    loans_by_item = {}
+    for loan in loan_result.data or []:
+        loans_by_item.setdefault(loan["collection_item_id"], []).append(loan)
+
+    return render_template_string(
+        PAGE_TEMPLATE,
+        cards=rows,
+        loans_by_item=loans_by_item,
+        primary_types=primary_types,
+        color_filter=color_filter,
+        type_filter=type_filter,
+        cmc_filter=cmc_filter,
+    )
+
+
+@app.route("/edit/<int:item_id>", methods=["GET", "POST"])
+def edit_item(item_id):
+    db = _sb()
+    uid = _uid()
+
+    if request.method == "POST":
+        quantity = int(request.form["quantity"])
+        condition = request.form["condition"]
+        foil = bool(request.form.get("foil"))
+        container_id = request.form.get("container_id") or None
+
+        if quantity <= 0:
+            (
+                db.table("collection_items")
+                .delete()
+                .eq("user_id", uid)
+                .eq("id", item_id)
+                .execute()
+            )
+        else:
+            (
+                db.table("collection_items")
+                .update({
+                    "quantity": quantity,
+                    "condition": condition,
+                    "foil": foil,
+                    "container_id": container_id,
+                })
+                .eq("user_id", uid)
+                .eq("id", item_id)
+                .execute()
+            )
+        return redirect("/tracker")
+
+    item_row = _get_item(db, item_id)
+    if item_row is None:
+        return "That collection item doesn't exist.", 404
+
+    card = _card_map(db, [item_row["card_id"]]).get(item_row["card_id"])
+    if card is None:
+        return "That card doesn't exist.", 404
+
+    item = dict(item_row)
+    item["name"] = card["name"]
+
+    container_result = (
+        db.table("containers")
+        .select("id, name, kind")
+        .eq("user_id", uid)
+        .order("name")
+        .execute()
+    )
+    return render_template_string(
+        EDIT_TEMPLATE, item=item, containers=container_result.data or []
+    )
+
+
+@app.route("/delete/<int:item_id>", methods=["POST"])
+def delete_item(item_id):
+    db = _sb()
+    (
+        db.table("collection_items")
+        .delete()
+        .eq("user_id", _uid())
+        .eq("id", item_id)
+        .execute()
+    )
+    return redirect("/tracker")
+
+
+@app.route("/item/<int:item_id>/increment", methods=["POST"])
+def increment_item(item_id):
+    next_url = request.form.get("next") or "/tracker"
+    db = _sb()
+    item = _get_item(db, item_id)
+    if item:
+        (
+            db.table("collection_items")
+            .update({"quantity": item["quantity"] + 1})
+            .eq("user_id", _uid())
+            .eq("id", item_id)
+            .execute()
+        )
+    return redirect(next_url)
+
+
+@app.route("/item/<int:item_id>/decrement", methods=["POST"])
+def decrement_item(item_id):
+    next_url = request.form.get("next") or "/tracker"
+    db = _sb()
+    item = _get_item(db, item_id)
+    if item:
+        if item["quantity"] <= 1:
+            (
+                db.table("collection_items")
+                .delete()
+                .eq("user_id", _uid())
+                .eq("id", item_id)
+                .execute()
+            )
+        else:
+            (
+                db.table("collection_items")
+                .update({"quantity": item["quantity"] - 1})
+                .eq("user_id", _uid())
+                .eq("id", item_id)
+                .execute()
+            )
+    return redirect(next_url)
+
+
+@app.route("/card-suggestions")
+def card_suggestions():
+    query = request.args.get("q", "").strip()
+    if len(query) < 2:
+        return jsonify([])
+    try:
+        names = autocomplete_card_name(query)
+    except Exception:
+        names = []
+    return jsonify(names)
+
+
+@app.route("/add", methods=["GET", "POST"])
+def add_card_page():
+    if request.method == "GET":
+        return render_template_string(SEARCH_TEMPLATE, error=None, container_id=request.args.get("container_id"))
+
+    card_name = request.form["card_name"]
+    container_id = request.form.get("container_id") or None
+    force_picker = request.form.get("force_picker") == "1"
+
+    db = _sb()
+    auto_pick = get_setting(db, "auto_pick_version", "true") == "true"
+
+    if auto_pick and not force_picker:
+        try:
+            card = fetch_card_by_name(card_name)
+        except Exception:
+            return render_template_string(
+                SEARCH_TEMPLATE,
+                error=f'Could not find a card named "{card_name}". Check the spelling and try again.',
+                container_id=container_id,
+            )
+        return render_template_string(QUICK_ADD_TEMPLATE, card=card, card_name=card_name, container_id=container_id)
+
+    try:
+        printings = search_all_printings(card_name)
+    except Exception:
+        return render_template_string(
+            SEARCH_TEMPLATE,
+            error=f'Could not find a card named "{card_name}". Check the spelling and try again.',
+            container_id=container_id,
+        )
+
+    if not printings:
+        return render_template_string(
+            SEARCH_TEMPLATE,
+            error=f'Could not find a card named "{card_name}". Check the spelling and try again.',
+            container_id=container_id,
+        )
+
+    return render_template_string(
+        PRINTINGS_TEMPLATE, card_name=card_name, printings=printings, container_id=container_id
+    )
+
+
+CONTAINERS_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Collection</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+    <h1>My Collection</h1>
+
+    {% if containers %}
+    {% for c in containers %}
+    <div class="item">
+        <div class="icon icon-{{ c['kind'] }}">
+            {% if c['kind'] == 'deck' %}<div class="cb"></div><div class="cb"></div><div class="cb"></div>{% endif %}
+        </div>
+        <div class="item-info">
+            <a href="/containers/{{ c['id'] }}">{{ c['name'] }}</a>
+            <span class="kind-tag">{{ c['kind'] }}{% if c['format'] %} &middot; {{ c['format'] }}{% endif %} &mdash; {{ c['card_count'] }} cards</span>
+        </div>
+        <details class="options-menu">
+            <summary>&#8942;</summary>
+            <div class="options-dropdown">
+                <form method="POST" action="/containers/{{ c['id'] }}/duplicate">
+                    <button type="submit">Duplicate</button>
+                </form>
+                <form method="POST" action="/containers/{{ c['id'] }}/delete"
+                      onsubmit="return confirm('Delete \'{{ c['name'] }}\'? Real cards inside will move to Unsorted, not be deleted.');">
+                    <button type="submit" class="danger">Delete</button>
+                </form>
+            </div>
+        </details>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p style="color:#c9b28a; font-style:italic;">You haven't made any binders, boxes, or decks yet.</p>
+    {% endif %}
+
+    <h2>Create a new one</h2>
+    <form method="POST" action="/">
+        <label>Name
+            <input type="text" name="name" placeholder="e.g. Modern Staples" required>
+        </label>
+        <label>Type
+            <select name="kind" id="kind-select" onchange="document.getElementById('format-field').style.display = this.value === 'deck' ? 'block' : 'none';">
+                <option value="binder">Binder</option>
+                <option value="box">Box</option>
+                <option value="deck">Deck</option>
+            </select>
+        </label>
+        <label id="format-field" style="display:none;">Format (decks only)
+            <select name="format">
+                {% for f in formats %}
+                <option value="{{ f }}">{{ f }}</option>
+                {% endfor %}
+                <option value="Casual">Casual / Other</option>
+            </select>
+        </label>
+        <button type="submit">Create</button>
+    </form>
+</body>
+</html>
+"""
+
+CONTAINER_DETAIL_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ container['name'] }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+    <h1>{{ container['name'] }} <span class="kind-tag">({{ container['kind'] }}{% if container['format'] %} &middot; {{ container['format'] }}{% endif %})</span></h1>
+    {% if cards %}
+    <table>
+        <tr><th>Image</th><th>Name</th><th>Set</th><th>Qty</th><th>Condition</th></tr>
+        {% for card in cards %}
+        <tr>
+            <td>{% if card['image_url'] %}<img src="{{ card['image_url'] }}">{% endif %}</td>
+            <td>{{ card['name'] }}</td>
+            <td>{{ card['set_name'] }}</td>
+            <td>{{ card['quantity'] }}</td>
+            <td>{{ card['condition'] }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p class="empty">Nothing filed here yet. Edit a card in your collection and assign it to this container.</p>
+    {% endif %}
+    <p style="margin-top:20px;"><a href="/">&larr; Back to containers</a></p>
+</body>
+</html>
+"""
+
+
+@app.route("/", methods=["GET", "POST"])
+def containers_page():
+    if "user_id" not in session:
+        return redirect("/login")
+
+    db = _sb()
+    uid = _uid()
+
+    if request.method == "POST":
+        name = request.form["name"]
+        kind = request.form["kind"]
+        format_ = request.form.get("format") or None
+        (
+            db.table("containers")
+            .insert({
+                "user_id": uid,
+                "name": name,
+                "kind": kind,
+                "format": format_ if kind == "deck" else None,
+            })
+            .execute()
+        )
+        return redirect("/")
+
+    container_result = (
+        db.table("containers")
+        .select("*")
+        .eq("user_id", uid)
+        .order("name")
+        .execute()
+    )
+    containers = [dict(row) for row in (container_result.data or [])]
+
+    item_result = (
+        db.table("collection_items")
+        .select("container_id")
+        .eq("user_id", uid)
+        .execute()
+    )
+    counts = {}
+    for item in item_result.data or []:
+        cid = item.get("container_id")
+        if cid is not None:
+            counts[cid] = counts.get(cid, 0) + 1
+
+    for container in containers:
+        container["card_count"] = counts.get(container["id"], 0)
+
+    return render_template_string(
+        CONTAINERS_TEMPLATE,
+        containers=containers,
+        formats=list(FORMAT_RULES.keys()),
+    )
+
+
+@app.route("/containers/<int:container_id>/delete", methods=["POST"])
+def delete_container(container_id):
+    db = _sb()
+    uid = _uid()
+
+    (
+        db.table("collection_items")
+        .delete()
+        .eq("user_id", uid)
+        .eq("container_id", container_id)
+        .eq("is_missing", True)
+        .execute()
+    )
+    (
+        db.table("collection_items")
+        .update({"container_id": None})
+        .eq("user_id", uid)
+        .eq("container_id", container_id)
+        .execute()
+    )
+    (
+        db.table("containers")
+        .delete()
+        .eq("user_id", uid)
+        .eq("id", container_id)
+        .execute()
+    )
+    return redirect("/")
+
+
+@app.route("/containers/<int:container_id>/duplicate", methods=["POST"])
+def duplicate_container(container_id):
+    db = _sb()
+    uid = _uid()
+    original = _get_container(db, container_id)
+    if original is None:
+        return redirect("/")
+
+    created = (
+        db.table("containers")
+        .insert({
+            "user_id": uid,
+            "name": f"{original['name']} (copy)",
+            "kind": original["kind"],
+            "format": original.get("format"),
+        })
+        .execute()
+    )
+    if not created.data:
+        return redirect("/")
+
+    new_container_id = created.data[0]["id"]
+
+    if original["kind"] == "deck":
+        card_result = (
+            db.table("collection_items")
+            .select("card_id, quantity")
+            .eq("user_id", uid)
+            .eq("container_id", container_id)
+            .execute()
+        )
+        for card in card_result.data or []:
+            save_to_collection(
+                db, uid, card["card_id"], card["quantity"], "NM", False,
+                container_id=new_container_id, is_missing=True
+            )
+
+    return redirect("/")
+
+
+@app.route("/containers/<int:container_id>")
+def container_detail(container_id):
+    db = _sb()
+    uid = _uid()
+    container = _get_container(db, container_id)
+    if container is None:
+        return "That container doesn't exist.", 404
+
+    item_result = (
+        db.table("collection_items")
+        .select("*")
+        .eq("user_id", uid)
+        .eq("container_id", container_id)
+        .execute()
+    )
+    items = item_result.data or []
+    cards_by_id = _card_map(db, [item["card_id"] for item in items])
+
+    cards = []
+    for item in items:
+        card = cards_by_id.get(item["card_id"])
+        if not card:
+            continue
+        cards.append({
+            "item_id": item["id"],
+            "name": card.get("name"),
+            "set_name": card.get("set_name"),
+            "image_url": card.get("image_url"),
+            "type_line": card.get("type_line"),
+            "quantity": item["quantity"],
+            "condition": item["condition"],
+            "is_missing": item["is_missing"],
+        })
+
+    if container["kind"] == "deck":
+        cards.sort(key=lambda row: (bool(row["is_missing"]), (row["name"] or "").lower()))
+        legality = check_deck_legality(db, uid, container_id, container.get("format"))
+
+        missing_totals = {}
+        for row in cards:
+            if row["is_missing"]:
+                missing_totals[row["name"]] = missing_totals.get(row["name"], 0) + row["quantity"]
+        missing_text = "\n".join(
+            f"{qty} {name}" for name, qty in sorted(missing_totals.items())
+        )
+
+        return render_template_string(
+            DECK_DETAIL_TEMPLATE,
+            container=container,
+            grouped_cards=group_cards_by_type(cards),
+            legality=legality,
+            missing_text=missing_text,
+        )
+
+    cards.sort(key=lambda row: (row["name"] or "").lower())
+    return render_template_string(
+        CONTAINER_DETAIL_TEMPLATE, container=container, cards=cards
+    )
+
 
 @app.route("/add/confirm", methods=["POST"])
 def add_card_confirm():
     scryfall_id = request.form["scryfall_id"]
     quantity = int(request.form["quantity"])
     condition = request.form["condition"]
-    foil = 1 if request.form.get("foil") else 0
+    foil = bool(request.form.get("foil"))
     container_id = request.form.get("container_id") or None
 
     card = fetch_card_by_id(scryfall_id)
-    save_card(card)
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    db = _sb()
+    uid = _uid()
+    save_card(db, card)
 
     target_kind = None
     if container_id:
-        target = conn.execute("SELECT kind FROM containers WHERE id = ?", (container_id,)).fetchone()
+        target = _get_container(db, int(container_id))
         target_kind = target["kind"] if target else None
 
     if target_kind != "deck":
-        # Not going into a deck -- just a normal, real add (collection/binder/box).
-        new_item_id = save_to_collection(card["id"], quantity, condition, foil, container_id=container_id, is_missing=0)
-
-        # Check: does any deck have this card marked MISSING? If so, offer to fill it.
-        matches = find_decks_missing_card(conn, card["name"])
-        conn.close()
+        new_item_id = save_to_collection(
+            db, uid, card["id"], quantity, condition, foil,
+            container_id=container_id, is_missing=False
+        )
+        matches = find_decks_missing_card(db, uid, card["name"])
         fallback_url = f"/containers/{container_id}" if container_id else "/tracker"
 
         if matches:
             fill_options = []
             for m in matches:
-                fillable = min(quantity, m["missing_qty"])
                 fill_options.append({
                     "deck_id": m["deck_id"],
                     "deck_name": m["deck_name"],
                     "missing_item_id": m["missing_item_id"],
                     "missing_qty": m["missing_qty"],
-                    "fillable": fillable,
+                    "fillable": min(quantity, m["missing_qty"]),
                 })
             return render_template_string(
                 FILL_MISSING_TEMPLATE,
@@ -1111,18 +1322,17 @@ def add_card_confirm():
                 fill_options=fill_options,
                 fallback_url=fallback_url,
             )
-
         return redirect(fallback_url)
 
-    # Going into a deck: check if real copies exist elsewhere first.
-    available = total_real_available(conn, card["name"])
+    available = total_real_available(db, uid, card["name"])
     if available <= 0:
-        conn.close()
-        save_to_collection(card["id"], quantity, condition, foil, container_id=container_id, is_missing=1)
+        save_to_collection(
+            db, uid, card["id"], quantity, condition, foil,
+            container_id=container_id, is_missing=True
+        )
         return redirect(f"/containers/{container_id}")
 
-    sources = find_real_sources(conn, card["name"])
-    conn.close()
+    sources = find_real_sources(db, uid, card["name"])
     return render_template_string(
         MOVE_OR_MISSING_TEMPLATE,
         card_name=card["name"],
@@ -1141,18 +1351,20 @@ def add_card_confirm_move():
     scryfall_id = request.form["scryfall_id"]
     quantity = int(request.form["quantity"])
     condition = request.form["condition"]
-    foil = 1 if request.form.get("foil") else 0
+    foil = bool(request.form.get("foil"))
     container_id = request.form["container_id"]
 
     card = fetch_card_by_id(scryfall_id)
-    save_card(card)
+    db = _sb()
+    uid = _uid()
+    save_card(db, card)
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    leftover = move_real_into_deck(conn, card["name"], container_id, quantity)
-    conn.close()
+    leftover = move_real_into_deck(db, uid, card["name"], container_id, quantity)
     if leftover > 0:
-        save_to_collection(card["id"], leftover, condition, foil, container_id=container_id, is_missing=1)
+        save_to_collection(
+            db, uid, card["id"], leftover, condition, foil,
+            container_id=container_id, is_missing=True
+        )
     return redirect(f"/containers/{container_id}")
 
 
@@ -1161,12 +1373,17 @@ def add_card_confirm_missing():
     scryfall_id = request.form["scryfall_id"]
     quantity = int(request.form["quantity"])
     condition = request.form["condition"]
-    foil = 1 if request.form.get("foil") else 0
+    foil = bool(request.form.get("foil"))
     container_id = request.form["container_id"]
 
     card = fetch_card_by_id(scryfall_id)
-    save_card(card)
-    save_to_collection(card["id"], quantity, condition, foil, container_id=container_id, is_missing=1)
+    db = _sb()
+    uid = _uid()
+    save_card(db, card)
+    save_to_collection(
+        db, uid, card["id"], quantity, condition, foil,
+        container_id=container_id, is_missing=True
+    )
     return redirect(f"/containers/{container_id}")
 
 
@@ -1236,69 +1453,99 @@ LOANS_TEMPLATE = """
 
 @app.route("/loan/<int:item_id>", methods=["GET", "POST"])
 def loan_item(item_id):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-
-    item = conn.execute(
-        """
-        SELECT collection_items.id, collection_items.quantity, card_catalog.name
-        FROM collection_items
-        JOIN card_catalog ON collection_items.card_id = card_catalog.id
-        WHERE collection_items.id = ?
-        """,
-        (item_id,),
-    ).fetchone()
-    if item is None:
-        conn.close()
+    db = _sb()
+    uid = _uid()
+    item_row = _get_item(db, item_id)
+    if item_row is None:
         return "That card doesn't exist.", 404
 
-    already_loaned = conn.execute(
-        "SELECT COALESCE(SUM(quantity_out), 0) FROM loans WHERE collection_item_id = ? AND returned_at IS NULL",
-        (item_id,),
-    ).fetchone()[0]
+    card = _card_map(db, [item_row["card_id"]]).get(item_row["card_id"])
+    if card is None:
+        return "That card doesn't exist.", 404
+
+    item = {
+        "id": item_row["id"],
+        "quantity": item_row["quantity"],
+        "name": card["name"],
+    }
+
+    loan_result = (
+        db.table("loans")
+        .select("quantity_out")
+        .eq("user_id", uid)
+        .eq("collection_item_id", item_id)
+        .is_("returned_at", "null")
+        .execute()
+    )
+    already_loaned = sum(row["quantity_out"] for row in (loan_result.data or []))
     available = item["quantity"] - already_loaned
 
     if request.method == "POST":
         borrower_name = request.form["borrower_name"]
-        quantity_out = min(int(request.form["quantity_out"]), available)  # never loan more than available
+        quantity_out = min(int(request.form["quantity_out"]), available)
         if quantity_out > 0:
-            conn.execute(
-                "INSERT INTO loans (collection_item_id, borrower_name, quantity_out) VALUES (?, ?, ?)",
-                (item_id, borrower_name, quantity_out),
+            (
+                db.table("loans")
+                .insert({
+                    "user_id": uid,
+                    "collection_item_id": item_id,
+                    "borrower_name": borrower_name,
+                    "quantity_out": quantity_out,
+                })
+                .execute()
             )
-            conn.commit()
-        conn.close()
         return redirect("/tracker")
 
-    conn.close()
-    return render_template_string(LOAN_FORM_TEMPLATE, item=item, available=available)
+    return render_template_string(
+        LOAN_FORM_TEMPLATE, item=item, available=available
+    )
 
 
 @app.route("/loans")
 def loans_page():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    active = conn.execute(
-        """
-        SELECT loans.id, loans.borrower_name, loans.quantity_out, loans.loaned_at,
-               card_catalog.name as card_name
-        FROM loans
-        JOIN collection_items ON loans.collection_item_id = collection_items.id
-        JOIN card_catalog ON collection_items.card_id = card_catalog.id
-        WHERE loans.returned_at IS NULL
-        ORDER BY loans.loaned_at DESC
-        """
-    ).fetchall()
-    conn.close()
+    db = _sb()
+    loan_result = (
+        db.table("loans")
+        .select("*")
+        .eq("user_id", _uid())
+        .is_("returned_at", "null")
+        .order("loaned_at", desc=True)
+        .execute()
+    )
+    loans = loan_result.data or []
+    item_ids = [row["collection_item_id"] for row in loans]
+    items = {}
+    if item_ids:
+        item_result = (
+            db.table("collection_items")
+            .select("id, card_id")
+            .eq("user_id", _uid())
+            .in_("id", item_ids)
+            .execute()
+        )
+        items = {row["id"]: row for row in (item_result.data or [])}
+    cards = _card_map(db, [row["card_id"] for row in items.values()])
+    active = []
+    for loan in loans:
+        row = dict(loan)
+        item = items.get(loan["collection_item_id"])
+        card = cards.get(item["card_id"]) if item else None
+        row["card_name"] = card["name"] if card else "Unknown card"
+        active.append(row)
     return render_template_string(LOANS_TEMPLATE, loans=active)
 
 
 @app.route("/loans/<int:loan_id>/return", methods=["POST"])
 def return_loan(loan_id):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("UPDATE loans SET returned_at = CURRENT_TIMESTAMP WHERE id = ?", (loan_id,))
-    conn.commit()
-    conn.close()
+    from datetime import datetime, timezone
+    db = _sb()
+    (
+        db.table("loans")
+        .update({"returned_at": datetime.now(timezone.utc).isoformat()})
+        .eq("user_id", _uid())
+        .eq("id", loan_id)
+        .execute()
+    )
     return redirect("/loans")
 
 
@@ -1450,10 +1697,15 @@ VERSION_PICKER_TEMPLATE = """
 
 @app.route("/bulk-add")
 def bulk_add_page():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    containers = conn.execute("SELECT id, name, kind FROM containers ORDER BY name").fetchall()
-    conn.close()
+    db = _sb()
+    result = (
+        db.table("containers")
+        .select("id, name, kind")
+        .eq("user_id", _uid())
+        .order("name")
+        .execute()
+    )
+    containers = result.data or []
     preselect_container_id = request.args.get("container_id")
     return render_template_string(
         BULK_ADD_TEMPLATE, containers=containers, preselect_container_id=preselect_container_id
@@ -1481,15 +1733,15 @@ def bulk_add_line():
             "message": f"Couldn't find a card in set \"{parsed['set_code']}\" #{parsed['collector_number']}",
         })
 
-    save_card(card)
+    user_supabase = get_user_supabase()
+
+    save_card(user_supabase, card)
     new_item_id = save_to_collection(
-        card["id"], parsed["quantity"], "NM", False, container_id=container_id, is_missing=0
+        user_supabase, session["user_id"], card["id"], parsed["quantity"], "NM", False,
+        container_id=container_id, is_missing=False
     )
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    matches = find_decks_missing_card(conn, card["name"])
-    conn.close()
+    matches = find_decks_missing_card(user_supabase, session["user_id"], card["name"])
 
     fill_options = [
         {
@@ -1513,47 +1765,43 @@ def bulk_add_line():
 @app.route("/fill-missing/ajax", methods=["POST"])
 def fill_missing_ajax():
     data = request.get_json()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    db = _sb()
     moved = fill_missing_in_deck(
-        conn, int(data["source_item_id"]), int(data["missing_item_id"]), int(data["quantity"])
+        db, _uid(),
+        int(data["source_item_id"]),
+        int(data["missing_item_id"]),
+        int(data["quantity"]),
     )
-    conn.close()
     return jsonify({"moved": moved})
 
 
 @app.route("/edit/<int:item_id>/version")
 def change_version_page(item_id):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    item = conn.execute(
-        """
-        SELECT collection_items.id, card_catalog.name
-        FROM collection_items
-        JOIN card_catalog ON collection_items.card_id = card_catalog.id
-        WHERE collection_items.id = ?
-        """,
-        (item_id,),
-    ).fetchone()
-    conn.close()
-
-    if item is None:
+    db = _sb()
+    item_row = _get_item(db, item_id)
+    if item_row is None:
         return "That card doesn't exist.", 404
-
+    card = _card_map(db, [item_row["card_id"]]).get(item_row["card_id"])
+    if card is None:
+        return "That card doesn't exist.", 404
+    item = {"id": item_id, "name": card["name"]}
     printings = search_all_printings(item["name"])
     return render_template_string(VERSION_PICKER_TEMPLATE, item=item, printings=printings)
 
 
 @app.route("/edit/<int:item_id>/version/confirm", methods=["POST"])
 def change_version_confirm(item_id):
+    db = _sb()
     scryfall_id = request.form["scryfall_id"]
     card = fetch_card_by_id(scryfall_id)
-    save_card(card)
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("UPDATE collection_items SET card_id = ? WHERE id = ?", (card["id"], item_id))
-    conn.commit()
-    conn.close()
+    save_card(db, card)
+    (
+        db.table("collection_items")
+        .update({"card_id": card["id"]})
+        .eq("user_id", _uid())
+        .eq("id", item_id)
+        .execute()
+    )
     return redirect(f"/edit/{item_id}")
 
 
@@ -1593,116 +1841,111 @@ def fill_missing():
     quantity = int(request.form["quantity"])
     fallback_url = request.form.get("fallback_url") or "/tracker"
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    fill_missing_in_deck(conn, source_item_id, missing_item_id, quantity)
-    conn.close()
-
+    db = _sb()
+    fill_missing_in_deck(
+        db, _uid(), source_item_id, missing_item_id, quantity
+    )
     return redirect(fallback_url)
-
-
-SETTINGS_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Settings</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
-    <h1>Settings</h1>
-    <form method="POST">
-        <div class="setting-row">
-            <label>
-                <input type="checkbox" name="auto_pick_version" {% if auto_pick_version %}checked{% endif %}>
-                <div>
-                    <div class="setting-title">Automatically pick a printing when searching</div>
-                    <div class="setting-desc">When you add a card by name, skip straight to the default/most recent printing instead of showing every printing to choose from. You can still browse all printings from that screen if the auto-picked one isn't right. Turn this off to always see the full printing picker.</div>
-                </div>
-            </label>
-        </div>
-        <button type="submit">Save</button>
-    </form>
-    {% if saved %}<p class="saved-note">Saved.</p>{% endif %}
-</body>
-</html>
-"""
 
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings_page():
-    conn = sqlite3.connect(DB_PATH)
+    db = _sb()
     saved = False
     if request.method == "POST":
-        set_setting(conn, "auto_pick_version", "true" if request.form.get("auto_pick_version") else "false")
+        set_setting(
+            db,
+            "auto_pick_version",
+            "true" if request.form.get("auto_pick_version") else "false",
+        )
         saved = True
-    auto_pick_version = get_setting(conn, "auto_pick_version", "true") == "true"
-    conn.close()
-    return render_template_string(SETTINGS_TEMPLATE, auto_pick_version=auto_pick_version, saved=saved)
-
-
-BULK_EDIT_LINE_PATTERN = re.compile(r"^\s*(\d+)\s+(.+?)\s*$")
+    auto_pick_version = get_setting(db, "auto_pick_version", "true") == "true"
+    return render_template_string(
+        SETTINGS_TEMPLATE,
+        auto_pick_version=auto_pick_version,
+        saved=saved,
+    )
 
 
 @app.route("/containers/<int:container_id>/bulk-edit/apply", methods=["POST"])
 def bulk_edit_apply(container_id):
-    data = request.get_json()
+    data = request.get_json() or {}
     submitted_text = data.get("card_list", "")
+    db = _sb()
+    uid = _uid()
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-
-    container = conn.execute("SELECT * FROM containers WHERE id = ?", (container_id,)).fetchone()
+    container = _get_container(db, container_id)
     if container is None or container["kind"] != "deck":
-        conn.close()
         return jsonify({"results": [{"ok": False, "message": "That deck doesn't exist."}]})
 
-    current_missing = conn.execute(
-        """
-        SELECT card_catalog.name, SUM(collection_items.quantity) as qty
-        FROM collection_items
-        JOIN card_catalog ON collection_items.card_id = card_catalog.id
-        WHERE collection_items.container_id = ? AND collection_items.is_missing = 1
-        GROUP BY card_catalog.name
-        """,
-        (container_id,),
-    ).fetchall()
-    current_by_name = {row["name"]: row["qty"] for row in current_missing}
+    missing_result = (
+        db.table("collection_items")
+        .select("id, card_id, quantity")
+        .eq("user_id", uid)
+        .eq("container_id", container_id)
+        .eq("is_missing", True)
+        .execute()
+    )
+    missing_items = missing_result.data or []
+    cards = _card_map(db, [row["card_id"] for row in missing_items])
+
+    current_by_name = {}
+    item_ids_by_name = {}
+    for row in missing_items:
+        card = cards.get(row["card_id"])
+        if not card:
+            continue
+        name = card["name"]
+        current_by_name[name] = current_by_name.get(name, 0) + row["quantity"]
+        item_ids_by_name.setdefault(name, []).append(row["id"])
 
     lines = [line.strip() for line in submitted_text.splitlines() if line.strip()]
     new_wants = {}
     results = []
+
     for line in lines:
         match = BULK_EDIT_LINE_PATTERN.match(line)
         if not match:
-            results.append({"ok": False, "message": f'Skipped "{line}" -- expected format: qty Card Name'})
+            results.append({
+                "ok": False,
+                "message": f'Skipped "{line}" -- expected format: qty Card Name',
+            })
             continue
         qty, name = match.groups()
         new_wants[name] = int(qty)
 
     for name in current_by_name:
         if name not in new_wants:
-            conn.execute(
-                """
-                DELETE FROM collection_items
-                WHERE container_id = ? AND is_missing = 1
-                  AND card_id IN (SELECT id FROM card_catalog WHERE name = ?)
-                """,
-                (container_id, name),
-            )
+            for item_id in item_ids_by_name.get(name, []):
+                (
+                    db.table("collection_items")
+                    .delete()
+                    .eq("user_id", uid)
+                    .eq("id", item_id)
+                    .execute()
+                )
             results.append({"ok": True, "message": f"Removed {name} from the wishlist"})
 
     for name, qty in new_wants.items():
         if name in current_by_name:
             if qty != current_by_name[name]:
-                conn.execute(
-                    """
-                    UPDATE collection_items SET quantity = ?
-                    WHERE container_id = ? AND is_missing = 1
-                      AND card_id IN (SELECT id FROM card_catalog WHERE name = ?)
-                    """,
-                    (qty, container_id, name),
-                )
+                ids = item_ids_by_name.get(name, [])
+                if ids:
+                    (
+                        db.table("collection_items")
+                        .update({"quantity": qty})
+                        .eq("user_id", uid)
+                        .eq("id", ids[0])
+                        .execute()
+                    )
+                    for extra_id in ids[1:]:
+                        (
+                            db.table("collection_items")
+                            .delete()
+                            .eq("user_id", uid)
+                            .eq("id", extra_id)
+                            .execute()
+                        )
                 results.append({"ok": True, "message": f"Updated {name} to {qty}x"})
         else:
             try:
@@ -1710,17 +1953,224 @@ def bulk_edit_apply(container_id):
             except Exception:
                 card = None
             if card is None:
-                results.append({"ok": False, "message": f'Could not find a card named "{name}" -- skipped'})
+                results.append({
+                    "ok": False,
+                    "message": f'Could not find a card named "{name}" -- skipped',
+                })
                 continue
-            conn.commit()  # release our write lock before save_card/save_to_collection open their own connections
-            save_card(card)
-            save_to_collection(card["id"], qty, "NM", False, container_id=container_id, is_missing=1)
-            results.append({"ok": True, "message": f"Added {name} ({qty}x) as missing"})
 
-    conn.commit()
-    conn.close()
+            save_card(db, card)
+            save_to_collection(
+                db, uid, card["id"], qty, "NM", False,
+                container_id=container_id, is_missing=True
+            )
+            results.append({
+                "ok": True,
+                "message": f"Added {name} ({qty}x) as missing",
+            })
+
     return jsonify({"results": results})
 
+
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MTG Collection - Login</title>
+</head>
+
+<body>
+
+    <h1>MTG Collection Tracker</h1>
+
+    <h2>Login</h2>
+
+    {% if error %}
+        <p style="color:red;">{{ error }}</p>
+    {% endif %}
+
+    <form method="POST">
+
+        <label>Email</label><br>
+        <input
+            type="email"
+            name="email"
+            required
+        ><br><br>
+
+        <label>Password</label><br>
+        <input
+            type="password"
+            name="password"
+            required
+        ><br><br>
+
+        <button type="submit">
+            Login
+        </button>
+
+    </form>
+
+    <p>
+        Don't have an account?
+        <a href="/signup">Create account</a>
+    </p>
+
+</body>
+</html>
+"""
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+
+    if request.method == "POST":
+
+        email = request.form["email"]
+        password = request.form["password"]
+
+        try:
+            response = supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": password,
+            })
+
+            session["access_token"] = response.session.access_token
+            session["refresh_token"] = response.session.refresh_token
+            session["user_id"] = response.user.id
+            session["email"] = response.user.email
+
+            return redirect("/")
+
+        except Exception as e:
+            return render_template_string(
+                LOGIN_HTML,
+                error=str(e)
+            )
+
+    return render_template_string(
+        LOGIN_HTML,
+        error=None
+    )
+
+SIGNUP_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MTG Collection - Sign Up</title>
+</head>
+
+<body>
+
+    <h1>Create Account</h1>
+
+    {% if error %}
+        <p style="color:red;">{{ error }}</p>
+    {% endif %}
+
+    {% if message %}
+        <p>{{ message }}</p>
+    {% endif %}
+
+    <form method="POST">
+
+        <label>Email</label><br>
+        <input
+            type="email"
+            name="email"
+            required
+        ><br><br>
+
+        <label>Password</label><br>
+        <input
+            type="password"
+            name="password"
+            minlength="6"
+            required
+        ><br><br>
+
+        <button type="submit">
+            Create Account
+        </button>
+
+    </form>
+
+    <p>
+        Already have an account?
+        <a href="/login">Login</a>
+    </p>
+
+</body>
+</html>
+"""
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+
+    if request.method == "POST":
+
+        email = request.form["email"]
+        password = request.form["password"]
+
+        try:
+            response = supabase.auth.sign_up({
+                "email": email,
+                "password": password,
+            })
+
+            if response.session:
+                session["access_token"] = response.session.access_token
+                session["refresh_token"] = response.session.refresh_token
+                session["user_id"] = response.user.id
+                session["email"] = response.user.email
+
+                return redirect("/")
+
+            return render_template_string(
+                SIGNUP_HTML,
+                error=None,
+                message="Account created. Check your email to confirm your account, then log in."
+            )
+
+        except Exception as e:
+
+            return render_template_string(
+                SIGNUP_HTML,
+                error=str(e),
+                message=None
+            )
+
+    return render_template_string(
+        SIGNUP_HTML,
+        error=None,
+        message=None
+    )
+
+@app.route("/logout")
+def logout():
+
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass
+
+    session.clear()
+
+    return redirect("/login")
+
+def get_user_supabase():
+    if "access_token" not in session:
+        return None
+
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    client.auth.set_session(
+        session["access_token"],
+        session["refresh_token"]
+    )
+
+    return client
 
 if __name__ == "__main__":
     app.run(debug=True)

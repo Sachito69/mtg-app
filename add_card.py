@@ -11,12 +11,9 @@ you actually own or add, the moment you add them.
 
 import json
 import re
-import sqlite3
 import sys
 import urllib.request
 import urllib.parse
-
-DB_PATH = "db/mtg.sqlite3"
 
 # Matches lines like: "1 Reckless Impulse (PLST) VOW-174"
 #                       qty   name              set   number
@@ -126,75 +123,84 @@ def get_colors(card):
     return []
 
 
-def save_card(card):
-    """Inserts (or updates, if already saved) this card into card_catalog."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO card_catalog
-            (id, oracle_id, name, set_code, set_name, image_url,
-             colors, type_line, mana_cost, cmc, legalities, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+def _image_url(card):
+    """Return an image for normal or double-faced cards."""
+    image_uris = card.get("image_uris") or {}
+    if image_uris.get("normal"):
+        return image_uris["normal"]
+
+    for face in card.get("card_faces") or []:
+        face_images = face.get("image_uris") or {}
+        if face_images.get("normal"):
+            return face_images["normal"]
+
+    return None
+
+
+def save_card(supabase, card):
+    """Insert or update a Scryfall printing in the shared card catalog."""
+    supabase.table("card_catalog").upsert({
+        "id": card.get("id"),
+        "oracle_id": card.get("oracle_id"),
+        "name": card.get("name"),
+        "set_code": card.get("set"),
+        "set_name": card.get("set_name"),
+        "image_url": _image_url(card),
+        "colors": get_colors(card),
+        "type_line": card.get("type_line"),
+        "mana_cost": card.get("mana_cost"),
+        "cmc": card.get("cmc"),
+        "legalities": card.get("legalities") or {},
+    }).execute()
+
+
+def save_to_collection(
+    supabase, user_id, card_id, quantity, condition, foil,
+    container_id=None, is_missing=False
+):
+    """Add a card, or increase the matching collection row's quantity."""
+    query = (
+        supabase.table("collection_items")
+        .select("id, quantity")
+        .eq("user_id", user_id)
+        .eq("card_id", card_id)
+        .eq("condition", condition)
+        .eq("foil", bool(foil))
+        .eq("is_missing", bool(is_missing))
+    )
+
+    if container_id is None:
+        query = query.is_("container_id", "null")
+    else:
+        query = query.eq("container_id", container_id)
+
+    result = query.limit(1).execute()
+
+    if result.data:
+        existing = result.data[0]
         (
-            card.get("id"),
-            card.get("oracle_id"),
-            card.get("name"),
-            card.get("set"),
-            card.get("set_name"),
-            (card.get("image_uris") or {}).get("normal"),
-            json.dumps(get_colors(card)),
-            card.get("type_line"),
-            card.get("mana_cost"),
-            card.get("cmc"),
-            json.dumps(card.get("legalities") or {}),
-            card.get("released_at"),
-        ),
-    )
-    conn.commit()
-    conn.close()
-
-
-def save_to_collection(card_id, quantity, condition, foil, container_id=None, is_missing=0):
-    """
-    Adds this card to your collection. If an identical entry already
-    exists -- same exact printing, same container, same condition, same
-    foil status, same real/missing status -- its quantity is increased
-    instead of creating a duplicate row. Returns the row's id either way.
-    """
-    conn = sqlite3.connect(DB_PATH)
-    foil_value = 1 if foil else 0
-
-    existing = conn.execute(
-        """
-        SELECT id, quantity FROM collection_items
-        WHERE card_id = ? AND condition = ? AND foil = ? AND is_missing = ?
-          AND ((container_id IS NULL AND ? IS NULL) OR container_id = ?)
-        """,
-        (card_id, condition, foil_value, is_missing, container_id, container_id),
-    ).fetchone()
-
-    if existing:
-        item_id, current_qty = existing
-        conn.execute(
-            "UPDATE collection_items SET quantity = ? WHERE id = ?", (current_qty + quantity, item_id)
+            supabase.table("collection_items")
+            .update({"quantity": existing["quantity"] + quantity})
+            .eq("user_id", user_id)
+            .eq("id", existing["id"])
+            .execute()
         )
-        conn.commit()
-        conn.close()
-        return item_id
+        return existing["id"]
 
-    cursor = conn.execute(
-        """
-        INSERT INTO collection_items (card_id, quantity, condition, foil, container_id, is_missing)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (card_id, quantity, condition, foil_value, container_id, is_missing),
+    result = (
+        supabase.table("collection_items")
+        .insert({
+            "user_id": user_id,
+            "card_id": card_id,
+            "quantity": quantity,
+            "condition": condition,
+            "foil": bool(foil),
+            "container_id": container_id,
+            "is_missing": bool(is_missing),
+        })
+        .execute()
     )
-    conn.commit()
-    new_id = cursor.lastrowid
-    conn.close()
-    return new_id
-
+    return result.data[0]["id"]
 
 def ask_collection_details():
     """Asks the simple questions needed to log your copy of the card."""
@@ -239,5 +245,4 @@ def main():
     print(f"Added {quantity}x {card['name']} ({condition}{', foil' if foil else ''}) to your collection.")
 
 
-if __name__ == "__main__":
-    main()
+# Standalone CLI disabled: database writes now require a logged-in user.
