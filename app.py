@@ -147,40 +147,102 @@ PAGE_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
-    <h1>Card Tracker</h1>
-    <p><a href="/add" style="color:#e6c766;">+ Add a card to your collection</a></p>
-    <form method="GET" class="filter-bar">
-        <select name="color" onchange="this.form.submit()">
-            <option value="all" {% if color_filter == 'all' %}selected{% endif %}>All colors</option>
-            <option value="W" {% if color_filter == 'W' %}selected{% endif %}>White</option>
-            <option value="U" {% if color_filter == 'U' %}selected{% endif %}>Blue</option>
-            <option value="B" {% if color_filter == 'B' %}selected{% endif %}>Black</option>
-            <option value="R" {% if color_filter == 'R' %}selected{% endif %}>Red</option>
-            <option value="G" {% if color_filter == 'G' %}selected{% endif %}>Green</option>
-            <option value="C" {% if color_filter == 'C' %}selected{% endif %}>Colorless</option>
-            <option value="M" {% if color_filter == 'M' %}selected{% endif %}>Multicolor</option>
-        </select>
-        <select name="ptype" onchange="this.form.submit()">
-            <option value="all" {% if type_filter == 'all' %}selected{% endif %}>All types</option>
-            {% for t in primary_types %}
-            <option value="{{ t }}" {% if type_filter == t %}selected{% endif %}>{{ t }}</option>
-            {% endfor %}
-        </select>
-        <select name="cmc" onchange="this.form.submit()">
-            <option value="all" {% if cmc_filter == 'all' %}selected{% endif %}>Any mana value</option>
-            {% for v in ['0','1','2','3','4','5','6','7+'] %}
-            <option value="{{ v }}" {% if cmc_filter == v %}selected{% endif %}>{{ v }}</option>
-            {% endfor %}
-        </select>
-        {% if color_filter != 'all' or type_filter != 'all' or cmc_filter != 'all' %}
-        <a href="/tracker">Clear filters</a>
-        {% endif %}
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+    <div class="tracker-heading">
+        <h1>Card Tracker</h1>
+        <button type="button" class="primary tracker-add-btn"
+                onclick="document.getElementById('add-card-modal').showModal()">+ Add Card</button>
+    </div>
+    <form method="GET" class="tracker-toolbar" id="tracker-filter-form">
+        <div class="tracker-search-wrap">
+            <input type="search" name="q" value="{{ search_query }}" placeholder="Search your cards...">
+            <button type="submit" class="secondary">Search</button>
+        </div>
+        <button type="button" class="secondary filter-popup-button"
+                onclick="document.getElementById('tracker-filter-modal').showModal()">
+            Filters{% if active_filter_count %} ({{ active_filter_count }}){% endif %}
+        </button>
+
+        <dialog id="tracker-filter-modal" class="deck-modal tracker-filter-modal">
+            <div class="filter-modal-heading">
+                <h2>Filter Cards</h2>
+                <button type="button" class="dialog-close"
+                        onclick="document.getElementById('tracker-filter-modal').close()">&times;</button>
+            </div>
+
+            <fieldset class="color-filter-fieldset">
+                <legend>Color</legend>
+                <div class="color-check-grid">
+                    {% for code, label in [('W','White'),('U','Blue'),('B','Black'),('R','Red'),('G','Green'),('C','Colorless'),('M','Multicolor')] %}
+                    <label class="check-option">
+                        <input type="checkbox" name="color" value="{{ code }}" {% if code in color_filters %}checked{% endif %}>
+                        <span>{{ label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </fieldset>
+
+            <label>Card type
+                <select name="ptype">
+                    <option value="all">All types</option>
+                    {% for t in primary_types %}
+                    <option value="{{ t }}" {% if type_filter == t %}selected{% endif %}>{{ t }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label>Mana value
+                <input type="number" name="cmc" min="0" step="1"
+                       value="{{ cmc_filter if cmc_filter != 'all' else '' }}"
+                       placeholder="Any">
+            </label>
+
+            <div class="modal-actions">
+                <a href="/tracker{% if search_query %}?q={{ search_query|urlencode }}{% endif %}" class="button-link secondary">Clear filters</a>
+                <button type="submit" class="primary">Apply Filters</button>
+            </div>
+        </dialog>
     </form>
     {% if cards %}
     <div class="grid">
         {% for card in cards %}
-        <div class="card-tile">
+        <div class="card-tile tracker-card-tile">
+            <details class="card-options tracker-card-options">
+                <summary title="Card options">&#8942;</summary>
+                <div class="options-dropdown">
+                    {% if card['loan_transaction_id'] %}
+                    <form method="POST" action="/community/return-borrowed/{{ card['loan_transaction_id'] }}"
+                          onsubmit="return confirm('Return this card to {{ card['loaned_from_email'] }}?');">
+                        <button type="submit">Return to lender</button>
+                    </form>
+                    {% else %}
+                    <a href="/edit/{{ card['id'] }}">Edit</a>
+                    <a href="/community/trade-picker/{{ card['id'] }}/loan">Loan</a>
+                    <a href="/community/trade-picker/{{ card['id'] }}/sale">Sell</a>
+                    <form method="POST" action="/delete/{{ card['id'] }}"
+                          onsubmit="return confirm('Remove this card from your collection?');">
+                        <button type="submit" class="danger">Delete</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </details>
             {% if card['image_url'] %}
             <img src="{{ card['image_url'] }}">
             {% else %}
@@ -193,29 +255,93 @@ PAGE_TEMPLATE = """
                     <span>{{ card['quantity'] }}x &middot; {{ card['condition'] }}</span>
                     {% if card['foil'] %}<span class="foil-tag">FOIL</span>{% endif %}
                 </div>
+                {% if card['lent_to'] %}
+                    {% for loan in card['lent_to'] %}
+                    <div class="lent-tag">Lent {{ loan.quantity }}x to @{{ loan.username or loan.email }}</div>
+                    {% endfor %}
+                {% else %}
                 <div class="location-tag">
                     {% if card['location_name'] %}In: {{ card['location_name'] }} ({{ card['location_kind'] }}){% else %}Unsorted{% endif %}
                 </div>
+                {% endif %}
+                {% if card['loan_transaction_id'] %}
+                <div class="borrowed-tag">Loaned from {{ card['loaned_from_email'] }}</div>
+                {% endif %}
                 {% if loans_by_item.get(card['id']) %}
                 <div class="loan-tag">
                     {% for l in loans_by_item.get(card['id']) %}Loaned {{ l['quantity_out'] }}x to {{ l['borrower_name'] }}{% if not loop.last %}, {% endif %}{% endfor %}
                 </div>
                 {% endif %}
-                <div class="card-actions">
-                    <a href="/edit/{{ card['id'] }}" style="color:#e6c766;">Edit</a>
-                    <a href="/loan/{{ card['id'] }}" style="color:#8ab8c9;">Loan out</a>
-                    <form method="POST" action="/delete/{{ card['id'] }}"
-                          onsubmit="return confirm('Remove this card from your collection?');">
-                        <button type="submit">Delete</button>
-                    </form>
-                </div>
+
             </div>
         </div>
         {% endfor %}
     </div>
     {% else %}
-    <p class="empty">Your collection is empty so far. Click "+ Add a card" above to get started!</p>
+    <p class="empty">Your collection is empty so far. Click "+ Add Card" above to get started!</p>
     {% endif %}
+
+    <dialog id="add-card-modal" class="deck-modal add-card-modal">
+        <form method="POST" action="/add">
+            <h2>Add a Card</h2>
+            <p class="modal-hint">Search for a Magic card by name.</p>
+            <input type="hidden" name="container_id" value="">
+            <label>Card name
+                <div class="autocomplete-wrap">
+                    <input type="text" name="card_name" id="tracker-card-name-input"
+                           placeholder="e.g. Lightning Bolt" required autocomplete="off">
+                    <div id="tracker-suggestions-box" class="suggestions-list"></div>
+                </div>
+            </label>
+            <div class="modal-actions">
+                <button type="button" class="secondary"
+                        onclick="document.getElementById('add-card-modal').close()">Cancel</button>
+                <button type="submit" class="primary">Find Card</button>
+            </div>
+        </form>
+    </dialog>
+
+<script>
+const addCardModal = document.getElementById('add-card-modal');
+const trackerCardInput = document.getElementById('tracker-card-name-input');
+const trackerSuggestions = document.getElementById('tracker-suggestions-box');
+let trackerAutocompleteTimer = null;
+
+addCardModal.addEventListener('click', function(event) {
+    if (event.target === addCardModal) addCardModal.close();
+});
+
+trackerCardInput.addEventListener('input', function() {
+    clearTimeout(trackerAutocompleteTimer);
+    const q = this.value.trim();
+    if (q.length < 2) {
+        trackerSuggestions.innerHTML = '';
+        trackerSuggestions.style.display = 'none';
+        return;
+    }
+    trackerAutocompleteTimer = setTimeout(async function() {
+        try {
+            const response = await fetch('/autocomplete?q=' + encodeURIComponent(q));
+            const names = await response.json();
+            trackerSuggestions.innerHTML = '';
+            names.forEach(function(name) {
+                const row = document.createElement('div');
+                row.className = 'suggestion-item';
+                row.textContent = name;
+                row.addEventListener('click', function() {
+                    trackerCardInput.value = name;
+                    trackerSuggestions.innerHTML = '';
+                    trackerSuggestions.style.display = 'none';
+                });
+                trackerSuggestions.appendChild(row);
+            });
+            trackerSuggestions.style.display = names.length ? 'block' : 'none';
+        } catch (e) {
+            trackerSuggestions.style.display = 'none';
+        }
+    }, 180);
+});
+</script>
 </body>
 </html>
 """
@@ -229,7 +355,24 @@ DECK_DETAIL_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>{{ container['name'] }} <span class="kind-tag">(deck{% if container['format'] %} &middot; {{ container['format'] }}{% endif %})</span></h1>
     <form class="deck-search-bar" method="POST" action="/add">
         <input type="hidden" name="container_id" value="{{ container['id'] }}">
@@ -495,7 +638,24 @@ EDIT_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>Edit: {{ item['name'] }}</h1>
     <form method="POST">
         <label>Quantity
@@ -572,7 +732,24 @@ PRINTINGS_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>Printings of "{{ card_name }}"</h1>
     {% if printings %}
         {% for p in printings %}
@@ -611,7 +788,24 @@ QUICK_ADD_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>Add this card</h1>
     <div class="quick-card">
         {% if card.get('image_uris') %}<img src="{{ card['image_uris']['normal'] }}">{% endif %}
@@ -657,7 +851,24 @@ SEARCH_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>Add a card</h1>
     <form method="POST" action="/add">
         <input type="hidden" name="container_id" value="{{ container_id or '' }}">
@@ -717,7 +928,24 @@ SETTINGS_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>Settings</h1>
     <form method="POST">
         <div class="setting-row">
@@ -738,9 +966,11 @@ SETTINGS_TEMPLATE = """
 
 @app.route("/tracker")
 def show_collection():
-    color_filter = request.args.get("color", "all")
+    search_query = (request.args.get("q") or "").strip()
+    color_filters = [c for c in request.args.getlist("color") if c in ("W","U","B","R","G","C","M")]
     type_filter = request.args.get("ptype", "all")
-    cmc_filter = request.args.get("cmc", "all")
+    cmc_raw = (request.args.get("cmc") or "").strip()
+    cmc_filter = cmc_raw if cmc_raw.isdigit() else "all"
 
     db = _sb()
     uid = _uid()
@@ -756,42 +986,89 @@ def show_collection():
     cards = _card_map(db, [item["card_id"] for item in items])
     containers = _container_map(db)
 
+    lender_ids = list({
+        item.get("loaned_from_user_id")
+        for item in items if item.get("loaned_from_user_id")
+    })
+    lender_profiles = {}
+    if lender_ids:
+        lender_profiles = {
+            p["user_id"]: p
+            for p in db.table("profiles").select("user_id,email,username").in_("user_id", lender_ids).execute().data or []
+        }
+
+    # Active loans sent by this user. These keep the lender's original card
+    # in their tracker, but label it with the borrower instead of "Unsorted".
+    sent_loans = (
+        db.table("card_transactions")
+        .select("id,source_item_id,friend_id,quantity")
+        .eq("owner_id", uid)
+        .eq("transaction_type", "loan")
+        .eq("status", "accepted")
+        .is_("returned_at", "null")
+        .execute()
+    ).data or []
+    borrower_ids = list({loan.get("friend_id") for loan in sent_loans if loan.get("friend_id")})
+    borrower_profiles = {}
+    if borrower_ids:
+        borrower_profiles = {
+            p["user_id"]: p
+            for p in db.table("profiles").select("user_id,email,username").in_("user_id", borrower_ids).execute().data or []
+        }
+    loans_sent_by_item = {}
+    for loan in sent_loans:
+        loans_sent_by_item.setdefault(loan.get("source_item_id"), []).append(loan)
+
     rows = []
     primary_types_set = set()
+
+    # Build type choices from the whole collection before applying filters.
+    for item in items:
+        card = cards.get(item["card_id"])
+        if card:
+            type_line = card.get("type_line") or ""
+            if type_line:
+                for main_type in ("Creature","Planeswalker","Instant","Sorcery","Artifact","Enchantment","Land","Battle"):
+                    if main_type in type_line:
+                        primary_types_set.add(main_type)
 
     for item in items:
         card = cards.get(item["card_id"])
         if not card:
             continue
 
+        name = card.get("name") or ""
         type_line = card.get("type_line") or ""
-        if type_line:
-            primary_types_set.add(type_line.split(" — ")[0])
-
         colors = card.get("colors") or []
         cmc = card.get("cmc")
 
-        if color_filter == "C" and colors:
-            continue
-        if color_filter == "M" and len(colors) <= 1:
-            continue
-        if color_filter not in ("all", "C", "M") and color_filter not in colors:
+        if search_query and search_query.lower() not in name.lower():
             continue
 
-        if type_filter != "all" and not type_line.startswith(type_filter):
-            continue
-
-        if cmc_filter == "7+":
-            if cmc is None or float(cmc) < 7:
+        if color_filters:
+            color_match = False
+            for color_filter in color_filters:
+                if color_filter == "C" and not colors:
+                    color_match = True
+                elif color_filter == "M" and len(colors) > 1:
+                    color_match = True
+                elif color_filter in ("W","U","B","R","G") and color_filter in colors:
+                    color_match = True
+            if not color_match:
                 continue
-        elif cmc_filter != "all":
+
+        if type_filter != "all" and type_filter not in type_line:
+            continue
+
+        if cmc_filter != "all":
             if cmc is None or float(cmc) != int(cmc_filter):
                 continue
 
         container = containers.get(item.get("container_id"))
+        lender_id = item.get("loaned_from_user_id")
         rows.append({
             "id": item["id"],
-            "name": card.get("name"),
+            "name": name,
             "set_name": card.get("set_name"),
             "type_line": type_line,
             "image_url": card.get("image_url"),
@@ -802,6 +1079,18 @@ def show_collection():
             "foil": item["foil"],
             "location_name": container.get("name") if container else None,
             "location_kind": container.get("kind") if container else None,
+            "loaned_from_user_id": lender_id,
+            "loaned_from_email": lender_profiles.get(lender_id, {}).get("email", "another user") if lender_id else None,
+            "loan_transaction_id": item.get("loan_transaction_id"),
+            "lent_to": [
+                {
+                    "transaction_id": loan.get("id"),
+                    "quantity": loan.get("quantity"),
+                    "username": borrower_profiles.get(loan.get("friend_id"), {}).get("username"),
+                    "email": borrower_profiles.get(loan.get("friend_id"), {}).get("email", "another user"),
+                }
+                for loan in loans_sent_by_item.get(item["id"], [])
+            ],
         })
 
     rows.sort(key=lambda row: (row.get("name") or "").lower())
@@ -823,9 +1112,11 @@ def show_collection():
         cards=rows,
         loans_by_item=loans_by_item,
         primary_types=primary_types,
-        color_filter=color_filter,
+        search_query=search_query,
+        color_filters=color_filters,
         type_filter=type_filter,
         cmc_filter=cmc_filter,
+        active_filter_count=len(color_filters) + (1 if type_filter != "all" else 0) + (1 if cmc_filter != "all" else 0),
     )
 
 
@@ -1001,53 +1292,100 @@ CONTAINERS_TEMPLATE = """
 <html>
 <head>
     <title>My Collection</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
-    <h1>My Collection</h1>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
 
-    {% if containers %}
-    {% for c in containers %}
-    <div class="item">
-        <div class="icon icon-{{ c['kind'] }}">
-            {% if c['kind'] == 'deck' %}<div class="cb"></div><div class="cb"></div><div class="cb"></div>{% endif %}
-        </div>
-        <div class="item-info">
-            <a href="/containers/{{ c['id'] }}">{{ c['name'] }}</a>
-            <span class="kind-tag">{{ c['kind'] }}{% if c['format'] %} &middot; {{ c['format'] }}{% endif %} &mdash; {{ c['card_count'] }} cards</span>
-        </div>
-        <details class="options-menu">
-            <summary>&#8942;</summary>
-            <div class="options-dropdown">
-                <form method="POST" action="/containers/{{ c['id'] }}/duplicate">
-                    <button type="submit">Duplicate</button>
-                </form>
-                <form method="POST" action="/containers/{{ c['id'] }}/delete"
-                      onsubmit="return confirm('Delete \'{{ c['name'] }}\'? Real cards inside will move to Unsorted, not be deleted.');">
-                    <button type="submit" class="danger">Delete</button>
-                </form>
-            </div>
-        </details>
+<div class="collection-heading">
+    <div>
+        <h1>My Collection</h1>
+        <p class="hint">Organize your cards into decks, binders, and boxes.</p>
     </div>
-    {% endfor %}
-    {% else %}
-    <p style="color:#c9b28a; font-style:italic;">You haven't made any binders, boxes, or decks yet.</p>
-    {% endif %}
+    <button type="button" class="primary collection-add-btn"
+            onclick="document.getElementById('create-container-modal').showModal()">+ Add</button>
+</div>
 
-    <h2>Create a new one</h2>
+<div class="collection-kind-filter">
+    <a href="/" class="{% if not active_kind %}active{% endif %}">All</a>
+    <a href="/?kind=deck" class="{% if active_kind == 'deck' %}active{% endif %}">Decks</a>
+    <a href="/?kind=binder" class="{% if active_kind == 'binder' %}active{% endif %}">Binders</a>
+    <a href="/?kind=box" class="{% if active_kind == 'box' %}active{% endif %}">Boxes</a>
+</div>
+
+{% if containers %}
+<div class="collection-list">
+{% for c in containers %}
+<div class="item">
+    <div class="icon icon-{{ c['kind'] }}">
+        {% if c['kind'] == 'deck' %}<div class="cb"></div><div class="cb"></div><div class="cb"></div>{% endif %}
+    </div>
+    <div class="item-info">
+        <a href="/containers/{{ c['id'] }}">{{ c['name'] }}</a>
+        <span class="kind-tag">{{ c['kind']|title }}{% if c['format'] %} &middot; {{ c['format'] }}{% endif %} &mdash; {{ c['card_count'] }} cards</span>
+    </div>
+    <details class="options-menu">
+        <summary>&#8942;</summary>
+        <div class="options-dropdown">
+            <form method="POST" action="/containers/{{ c['id'] }}/duplicate">
+                <button type="submit">Duplicate</button>
+            </form>
+            <form method="POST" action="/containers/{{ c['id'] }}/delete"
+                  onsubmit="return confirm('Delete \'{{ c['name'] }}\'? Real cards inside will move to Unsorted, not be deleted.');">
+                <button type="submit" class="danger">Delete</button>
+            </form>
+        </div>
+    </details>
+</div>
+{% endfor %}
+</div>
+{% else %}
+<p class="empty">
+{% if active_kind %}
+You don't have any {{ active_kind }}s yet.
+{% else %}
+You haven't made any binders, boxes, or decks yet.
+{% endif %}
+</p>
+{% endif %}
+
+<dialog id="create-container-modal" class="deck-modal collection-create-modal">
     <form method="POST" action="/">
+        <h2>Add to Collection</h2>
+        <p class="modal-hint">Create a deck, binder, or storage box.</p>
+
         <label>Name
             <input type="text" name="name" placeholder="e.g. Modern Staples" required>
         </label>
+
         <label>Type
-            <select name="kind" id="kind-select" onchange="document.getElementById('format-field').style.display = this.value === 'deck' ? 'block' : 'none';">
+            <select name="kind" id="kind-select"
+                    onchange="document.getElementById('format-field').style.display = this.value === 'deck' ? 'block' : 'none';">
+                <option value="deck">Deck</option>
                 <option value="binder">Binder</option>
                 <option value="box">Box</option>
-                <option value="deck">Deck</option>
             </select>
         </label>
-        <label id="format-field" style="display:none;">Format (decks only)
+
+        <label id="format-field">Format (decks only)
             <select name="format">
                 {% for f in formats %}
                 <option value="{{ f }}">{{ f }}</option>
@@ -1055,8 +1393,21 @@ CONTAINERS_TEMPLATE = """
                 <option value="Casual">Casual / Other</option>
             </select>
         </label>
-        <button type="submit">Create</button>
+
+        <div class="modal-actions">
+            <button type="button" class="secondary"
+                    onclick="document.getElementById('create-container-modal').close()">Cancel</button>
+            <button type="submit" class="primary">Create</button>
+        </div>
     </form>
+</dialog>
+
+<script>
+const createModal = document.getElementById('create-container-modal');
+createModal.addEventListener('click', function (event) {
+    if (event.target === createModal) createModal.close();
+});
+</script>
 </body>
 </html>
 """
@@ -1069,7 +1420,24 @@ CONTAINER_DETAIL_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>{{ container['name'] }} <span class="kind-tag">({{ container['kind'] }}{% if container['format'] %} &middot; {{ container['format'] }}{% endif %})</span></h1>
     {% if cards %}
     <table>
@@ -1126,6 +1494,12 @@ def containers_page():
     )
     containers = [dict(row) for row in (container_result.data or [])]
 
+    active_kind = (request.args.get("kind") or "").strip().lower()
+    if active_kind not in ("deck", "binder", "box"):
+        active_kind = ""
+    if active_kind:
+        containers = [c for c in containers if c.get("kind") == active_kind]
+
     item_result = (
         db.table("collection_items")
         .select("container_id")
@@ -1145,6 +1519,7 @@ def containers_page():
         CONTAINERS_TEMPLATE,
         containers=containers,
         formats=list(FORMAT_RULES.keys()),
+        active_kind=active_kind,
     )
 
 
@@ -1395,7 +1770,24 @@ LOAN_FORM_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>Loan out: {{ item['name'] }}</h1>
     <p class="avail">{{ available }} available to loan out of {{ item['quantity'] }} total (the rest is already loaned).</p>
     {% if available > 0 %}
@@ -1424,7 +1816,24 @@ LOANS_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>Loans</h1>
     {% if loans %}
     <table>
@@ -1557,7 +1966,24 @@ BULK_ADD_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>Bulk add cards</h1>
     <form id="bulk-form">
         <label>Paste your list, one card per line
@@ -1671,7 +2097,24 @@ VERSION_PICKER_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>Change version: {{ item['name'] }}</h1>
     {% if printings %}
         {% for p in printings %}
@@ -1813,7 +2256,24 @@ FILL_MISSING_TEMPLATE = """
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="nav-bar"><a href="/">Containers</a><a href="/tracker">Card Tracker</a><a href="/loans">Loans</a><a href="/settings">Settings</a></div>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
     <h1>You added {{ quantity }}x {{ card_name }}</h1>
     <p>This card is marked MISSING in:</p>
     {% for opt in fill_options %}
@@ -1972,54 +2432,774 @@ def bulk_edit_apply(container_id):
     return jsonify({"results": results})
 
 
-LOGIN_HTML = """
-<!DOCTYPE html>
+
+@app.context_processor
+def inject_profile_context():
+    if not session.get("user_id") or not session.get("access_token"):
+        return {
+            "notification_count": 0,
+            "pending_offer_count": 0,
+            "current_username": None,
+        }
+    try:
+        db = get_user_supabase()
+        uid = session["user_id"]
+
+        fr = (
+            db.table("friendships").select("id,requested_by")
+            .or_(f"user_a.eq.{uid},user_b.eq.{uid}")
+            .eq("status", "pending").execute()
+        ).data or []
+        friend_count = sum(1 for row in fr if row.get("requested_by") != uid)
+
+        incoming = (
+            db.table("card_transactions").select("id")
+            .eq("friend_id", uid).eq("status", "pending").execute()
+        ).data or []
+
+        outgoing = (
+            db.table("card_transactions").select("id")
+            .eq("owner_id", uid).eq("status", "pending").execute()
+        ).data or []
+
+        profile_rows = (
+            db.table("profiles").select("username")
+            .eq("user_id", uid).limit(1).execute()
+        ).data or []
+        username = profile_rows[0].get("username") if profile_rows else None
+
+        return {
+            "notification_count": friend_count + len(incoming),
+            "pending_offer_count": len(outgoing),
+            "current_username": username,
+        }
+    except Exception:
+        return {
+            "notification_count": 0,
+            "pending_offer_count": 0,
+            "current_username": None,
+        }
+
+@app.route("/notifications")
+def notifications():
+    db=_sb(); uid=_uid()
+    rows=db.table("friendships").select("*").or_(f"user_a.eq.{uid},user_b.eq.{uid}").eq("status","pending").execute().data or []
+    incoming=[r for r in rows if r.get("requested_by") != uid]
+    ids=[r.get("requested_by") for r in incoming if r.get("requested_by")]
+    pm={}
+    if ids: pm={p["user_id"]:p for p in db.table("profiles").select("user_id,email,username").in_("user_id",list(set(ids))).execute().data or []}
+    friend_requests=[{"id":r["id"],"email":pm.get(r.get("requested_by"),{}).get("email","Unknown user")} for r in incoming]
+    offer_rows=db.table("card_transactions").select("*").eq("friend_id",uid).eq("status","pending").order("created_at",desc=True).execute().data or []
+    cards=_card_map(db,[r.get("card_id") for r in offer_rows if r.get("card_id")]); owner_ids=[r.get("owner_id") for r in offer_rows if r.get("owner_id")]; owners={}
+    if owner_ids: owners={p["user_id"]:p for p in db.table("profiles").select("user_id,email,username").in_("user_id",list(set(owner_ids))).execute().data or []}
+    offers=[{**r,"card_name":cards.get(r.get("card_id"),{}).get("name","Unknown card"),"owner_email":owners.get(r.get("owner_id"),{}).get("email","Unknown user")} for r in offer_rows]
+    return render_template_string(NOTIFICATIONS_HTML,friend_requests=friend_requests,offers=offers)
+
+@app.route("/notifications/friend/<int:friendship_id>/accept",methods=["POST"])
+def notification_accept_friend(friendship_id):
+    _sb().rpc("respond_to_friend_request",{"p_friendship_id":friendship_id,"p_accept":True}).execute(); return redirect("/notifications")
+@app.route("/notifications/friend/<int:friendship_id>/decline",methods=["POST"])
+def notification_decline_friend(friendship_id):
+    _sb().rpc("respond_to_friend_request",{"p_friendship_id":friendship_id,"p_accept":False}).execute(); return redirect("/notifications")
+@app.route("/notifications/offer/<int:transaction_id>/accept",methods=["POST"])
+def notification_accept_offer(transaction_id):
+    _sb().rpc("respond_to_card_offer",{"p_transaction_id":transaction_id,"p_accept":True}).execute(); return redirect("/notifications")
+@app.route("/notifications/offer/<int:transaction_id>/decline",methods=["POST"])
+def notification_decline_offer(transaction_id):
+    _sb().rpc("respond_to_card_offer",{"p_transaction_id":transaction_id,"p_accept":False}).execute(); return redirect("/notifications")
+
+COMMUNITY_HTML = """
+<!doctype html>
 <html>
 <head>
-    <title>MTG Collection - Login</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Community</title>
+<link rel="stylesheet" href="/static/style.css">
 </head>
-
 <body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email","User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
 
-    <h1>MTG Collection Tracker</h1>
+<div class="community-header">
+<h1>Community</h1>
+<p>Add friends, then loan or sell cards directly to them.</p>
+</div>
 
-    <h2>Login</h2>
+{% if message %}<div class="alert">{{ message }}</div>{% endif %}
 
-    {% if error %}
-        <p style="color:red;">{{ error }}</p>
-    {% endif %}
+<div class="community-friends-layout">
+<section class="community-card add-friend-card">
+<h2>Add a friend</h2>
+<form method="post" action="/community/add-friend">
+<label>Friend's email</label>
+<input type="email" name="email" placeholder="friend@example.com" required>
+<button type="submit">Send friend request</button>
+</form>
+<p class="hint">Your friend must already have an account. They can accept the request from Notifications.</p>
+</section>
 
-    <form method="POST">
-
-        <label>Email</label><br>
-        <input
-            type="email"
-            name="email"
-            required
-        ><br><br>
-
-        <label>Password</label><br>
-        <input
-            type="password"
-            name="password"
-            required
-        ><br><br>
-
-        <button type="submit">
-            Login
-        </button>
-
-    </form>
-
-    <p>
-        Don't have an account?
-        <a href="/signup">Create account</a>
-    </p>
-
+<section class="community-card friends-wide">
+<h2>Your friends</h2>
+{% if friends %}
+{% for f in friends %}
+<div class="friend-action-row">
+<div class="friend-identity">
+<strong>@{{ f.username or "user" }}</strong>
+<div class="muted">{{ f.email }}</div>
+</div>
+<div class="friend-card-actions">
+<a class="button-link secondary" href="/community/trade/{{ f.user_id }}/loan">Loan</a>
+<a class="button-link primary" href="/community/trade/{{ f.user_id }}/sale">Sell</a>
+</div>
+</div>
+{% endfor %}
+{% else %}
+<p class="empty">You haven't added any friends yet.</p>
+{% endif %}
+</section>
+</div>
 </body>
 </html>
 """
 
+def _community_tables_ready(db):
+    """Return True when the community migration has been run."""
+    try:
+        db.table("profiles").select("user_id").limit(1).execute()
+        db.table("friendships").select("id").limit(1).execute()
+        db.table("card_transactions").select("id").limit(1).execute()
+        return True
+    except Exception:
+        return False
+
+@app.route("/community")
+def community():
+    db = _sb()
+    uid = _uid()
+    if not _community_tables_ready(db):
+        return render_template_string(
+            COMMUNITY_HTML, friends=[],
+            message="Community database tables are not installed yet. Run the community SQL migration in Supabase first."
+        )
+
+    friendship_rows = (
+        db.table("friendships").select("*")
+        .or_(f"user_a.eq.{uid},user_b.eq.{uid}").eq("status", "accepted")
+        .execute()
+    ).data or []
+
+    friend_ids = []
+    for row in friendship_rows:
+        other = row["user_b"] if row["user_a"] == uid else row["user_a"]
+        friend_ids.append(other)
+
+    profiles = {}
+    if friend_ids:
+        profiles = {
+            p["user_id"]: p
+            for p in db.table("profiles").select("user_id,email,username").in_("user_id", list(set(friend_ids))).execute().data or []
+        }
+
+    friends = [
+        {"user_id": fid, "email": profiles.get(fid, {}).get("email", "Unknown user"), "username": profiles.get(fid, {}).get("username")}
+        for fid in friend_ids
+    ]
+    friends.sort(key=lambda x: x["email"].lower())
+
+    return render_template_string(COMMUNITY_HTML, friends=friends, message=None)
+
+
+@app.route("/community/add-friend", methods=["POST"])
+def community_add_friend():
+    db = _sb(); uid = _uid()
+    email = (request.form.get("email") or "").strip().lower()
+    if not email: return redirect("/community")
+    rows = db.table("profiles").select("user_id,email,username").eq("email", email).limit(1).execute().data or []
+    if not rows or rows[0]["user_id"] == uid: return redirect("/community")
+    other = rows[0]["user_id"]; a, b = sorted([uid, other])
+    existing = db.table("friendships").select("id,status").eq("user_a",a).eq("user_b",b).limit(1).execute().data or []
+    if existing: return redirect("/community")
+    db.table("friendships").insert({"user_a":a,"user_b":b,"requested_by":uid,"status":"pending"}).execute()
+    return redirect("/community")
+
+
+
+COMMUNITY_TRADE_HTML = """
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ transaction_type|title }} Cards</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email","User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+
+<div class="trade-page-header">
+<div>
+<a href="/community" class="back-link">&larr; Community</a>
+<h1>{{ transaction_type|title }} cards to {{ friend.email }}</h1>
+<p class="hint">Choose cards from your collection on the left. Your {{ transaction_type }} cart is on the right.</p>
+</div>
+</div>
+
+<form method="post" action="/community/trade/{{ friend.user_id }}/{{ transaction_type }}/send" id="trade-form">
+<div class="trade-split">
+<section class="trade-collection">
+<div class="trade-pane-heading">
+<h2>Your Collection</h2>
+<input type="search" id="trade-search" placeholder="Search cards...">
+</div>
+
+{% if items %}
+<div class="trade-card-grid" id="trade-card-grid">
+{% for item in items %}
+<div class="trade-card" data-name="{{ item.card_name|lower }}">
+{% if item.image_url %}
+<img src="{{ item.image_url }}" alt="{{ item.card_name }}">
+{% else %}
+<div class="no-image">No image</div>
+{% endif %}
+<div class="trade-card-body">
+<strong>{{ item.card_name }}</strong>
+<div class="muted">{{ item.quantity }} available{% if item.container_name %} · {{ item.container_name }}{% endif %}</div>
+<button type="button" class="secondary add-to-trade"
+        data-id="{{ item.id }}"
+        data-name="{{ item.card_name }}"
+        data-image="{{ item.image_url or '' }}"
+        data-max="{{ item.quantity }}" data-selected="{% if selected_item_id == item.id %}1{% else %}0{% endif %}">+ Add</button>
+</div>
+</div>
+{% endfor %}
+</div>
+{% else %}
+<p class="empty">No available cards in your collection.</p>
+{% endif %}
+</section>
+
+<aside class="trade-cart">
+<div class="trade-pane-heading">
+<h2>{{ transaction_type|title }} Cart</h2>
+<span class="pill" id="cart-count">0 cards</span>
+</div>
+<div id="trade-cart-items">
+<p class="empty" id="empty-cart">Choose cards from your collection.</p>
+</div>
+
+{% if transaction_type == "sale" %}
+<label class="trade-price-label">Total sale price
+<input type="number" name="price" min="0" step="0.01" placeholder="0.00">
+</label>
+{% endif %}
+
+<div id="trade-hidden-inputs"></div>
+<button type="submit" class="primary trade-send-button" id="send-trade" disabled>
+Send {{ transaction_type|title }} Offer
+</button>
+</aside>
+</div>
+</form>
+
+<script>
+const cart = new Map();
+const cartBox = document.getElementById('trade-cart-items');
+const hiddenBox = document.getElementById('trade-hidden-inputs');
+const countBadge = document.getElementById('cart-count');
+const sendButton = document.getElementById('send-trade');
+
+function renderCart() {
+    cartBox.innerHTML = '';
+    hiddenBox.innerHTML = '';
+    let total = 0;
+
+    if (cart.size === 0) {
+        cartBox.innerHTML = '<p class="empty">Choose cards from your collection.</p>';
+    }
+
+    cart.forEach((item, id) => {
+        total += item.qty;
+        const row = document.createElement('div');
+        row.className = 'trade-cart-row';
+        row.innerHTML = `
+            ${item.image ? `<img src="${item.image}" alt="">` : ''}
+            <div class="trade-cart-info">
+                <strong>${item.name}</strong>
+                <div class="cart-qty-controls">
+                    <button type="button" data-action="minus" data-id="${id}">−</button>
+                    <span>${item.qty}</span>
+                    <button type="button" data-action="plus" data-id="${id}">+</button>
+                    <button type="button" class="cart-remove" data-action="remove" data-id="${id}">Remove</button>
+                </div>
+            </div>`;
+        cartBox.appendChild(row);
+
+        const idInput = document.createElement('input');
+        idInput.type = 'hidden';
+        idInput.name = 'item_id';
+        idInput.value = id;
+        hiddenBox.appendChild(idInput);
+
+        const qtyInput = document.createElement('input');
+        qtyInput.type = 'hidden';
+        qtyInput.name = 'quantity';
+        qtyInput.value = item.qty;
+        hiddenBox.appendChild(qtyInput);
+    });
+
+    countBadge.textContent = total + (total === 1 ? ' card' : ' cards');
+    sendButton.disabled = cart.size === 0;
+}
+
+document.querySelectorAll('.add-to-trade').forEach(button => {
+    button.addEventListener('click', () => {
+        const id = button.dataset.id;
+        if (!cart.has(id)) {
+            cart.set(id, {
+                name: button.dataset.name,
+                image: button.dataset.image,
+                max: Number(button.dataset.max),
+                qty: 1
+            });
+        } else {
+            const item = cart.get(id);
+            if (item.qty < item.max) item.qty++;
+        }
+        renderCart();
+    });
+});
+
+document.querySelectorAll('.add-to-trade[data-selected="1"]').forEach(button => {
+    const id = button.dataset.id;
+    if (!cart.has(id)) {
+        cart.set(id, {
+            name: button.dataset.name,
+            image: button.dataset.image,
+            max: Number(button.dataset.max),
+            qty: 1
+        });
+    }
+});
+renderCart();
+
+cartBox.addEventListener('click', event => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const id = button.dataset.id;
+    const item = cart.get(id);
+    if (!item) return;
+
+    if (button.dataset.action === 'plus' && item.qty < item.max) item.qty++;
+    if (button.dataset.action === 'minus') {
+        item.qty--;
+        if (item.qty <= 0) cart.delete(id);
+    }
+    if (button.dataset.action === 'remove') cart.delete(id);
+    renderCart();
+});
+
+document.getElementById('trade-search').addEventListener('input', function() {
+    const q = this.value.trim().toLowerCase();
+    document.querySelectorAll('.trade-card').forEach(card => {
+        card.style.display = card.dataset.name.includes(q) ? '' : 'none';
+    });
+});
+</script>
+</body>
+</html>
+"""
+
+
+def _accepted_friend(db, uid, friend_id):
+    a, b = sorted([uid, friend_id])
+    rows = (
+        db.table("friendships").select("id")
+        .eq("user_a", a).eq("user_b", b).eq("status", "accepted")
+        .limit(1).execute()
+    ).data or []
+    return bool(rows)
+
+
+
+TRADE_PICKER_HTML = """
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choose Friend</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a><a href="/tracker">Card Tracker</a><a href="/community">Community</a>
+</div>
+<a href="/tracker" class="back-link">&larr; Card Tracker</a>
+<h1>Who do you want to {{ transaction_type }} this card to?</h1>
+<p class="hint">{{ card_name }}</p>
+<div class="community-card">
+{% for friend in friends %}
+<div class="friend-action-row">
+<div><strong>@{{ friend.username or "user" }}</strong><div class="muted">{{ friend.email }}</div></div>
+<a class="button-link primary" href="/community/trade/{{ friend.user_id }}/{{ transaction_type }}?item={{ item_id }}">Choose</a>
+</div>
+{% else %}
+<p class="empty">Add a friend in Community first.</p>
+{% endfor %}
+</div>
+</body>
+</html>
+"""
+
+
+@app.route("/community/trade-picker/<int:item_id>/<transaction_type>")
+def community_trade_picker(item_id, transaction_type):
+    db = _sb()
+    uid = _uid()
+    if transaction_type not in ("loan", "sale"):
+        return redirect("/tracker")
+    item = _get_item(db, item_id)
+    if not item or item.get("loan_transaction_id"):
+        return redirect("/tracker")
+    card = _card_map(db, [item["card_id"]]).get(item["card_id"], {})
+
+    friendship_rows = (
+        db.table("friendships").select("*")
+        .or_(f"user_a.eq.{uid},user_b.eq.{uid}").eq("status", "accepted").execute()
+    ).data or []
+    friend_ids = [r["user_b"] if r["user_a"] == uid else r["user_a"] for r in friendship_rows]
+    profiles = {}
+    if friend_ids:
+        profiles = {
+            p["user_id"]: p
+            for p in db.table("profiles").select("user_id,email,username").in_("user_id", friend_ids).execute().data or []
+        }
+    friends = [{"user_id": f, "email": profiles.get(f, {}).get("email", "Unknown user"), "username": profiles.get(f, {}).get("username")} for f in friend_ids]
+    return render_template_string(
+        TRADE_PICKER_HTML, friends=friends, transaction_type=transaction_type,
+        item_id=item_id, card_name=card.get("name", "Card")
+    )
+
+
+@app.route("/community/trade/<friend_id>/<transaction_type>")
+def community_trade(friend_id, transaction_type):
+    db = _sb()
+    uid = _uid()
+    transaction_type = transaction_type.lower()
+    if transaction_type not in ("loan", "sale") or not _accepted_friend(db, uid, friend_id):
+        return redirect("/community")
+
+    profile_rows = (
+        db.table("profiles").select("user_id,email,username")
+        .eq("user_id", friend_id).limit(1).execute()
+    ).data or []
+    if not profile_rows:
+        return redirect("/community")
+    friend = profile_rows[0]
+
+    item_rows = (
+        db.table("collection_items").select("*")
+        .eq("user_id", uid).eq("is_missing", False)
+        .gt("quantity", 0).execute()
+    ).data or []
+
+    cards = _card_map(db, [r.get("card_id") for r in item_rows])
+    containers = _container_map(db)
+    items = []
+    for row in item_rows:
+        card = cards.get(row.get("card_id"), {})
+        container = containers.get(row.get("container_id")) if row.get("container_id") else None
+        items.append({
+            "id": row["id"],
+            "quantity": row["quantity"],
+            "card_name": card.get("name", "Unknown card"),
+            "image_url": card.get("image_url"),
+            "container_name": container.get("name") if container else "Unsorted",
+        })
+    items.sort(key=lambda x: x["card_name"].lower())
+
+    return render_template_string(
+        COMMUNITY_TRADE_HTML,
+        friend=friend,
+        items=items,
+        transaction_type=transaction_type,
+        selected_item_id=request.args.get("item", type=int),
+    )
+
+
+@app.route("/community/trade/<friend_id>/<transaction_type>/send", methods=["POST"])
+def community_trade_send(friend_id, transaction_type):
+    db = _sb()
+    uid = _uid()
+    transaction_type = transaction_type.lower()
+    if transaction_type not in ("loan", "sale") or not _accepted_friend(db, uid, friend_id):
+        return redirect("/community")
+
+    item_ids = request.form.getlist("item_id")
+    quantities = request.form.getlist("quantity")
+    if not item_ids or len(item_ids) != len(quantities):
+        return redirect(f"/community/trade/{friend_id}/{transaction_type}")
+
+    price_raw = (request.form.get("price") or "").strip()
+    total_price = float(price_raw) if price_raw else None
+
+    # Each selected card becomes its own pending offer so the existing
+    # notification accept/decline system continues to work.
+    for index, (item_id_raw, qty_raw) in enumerate(zip(item_ids, quantities)):
+        try:
+            item_id = int(item_id_raw)
+            qty = max(1, int(qty_raw))
+        except ValueError:
+            continue
+
+        item = _get_item(db, item_id)
+        if not item or int(item.get("quantity") or 0) < qty:
+            continue
+
+        card_price = None
+        if transaction_type == "sale" and total_price is not None:
+            # Store the total price on the first card; the notification still
+            # represents the grouped cart as individual card offers.
+            card_price = total_price if index == 0 else 0
+
+        db.table("card_transactions").insert({
+            "owner_id": uid,
+            "friend_id": friend_id,
+            "card_id": item["card_id"],
+            "source_item_id": item_id,
+            "transaction_type": transaction_type,
+            "quantity": qty,
+            "price": card_price,
+            "status": "pending",
+        }).execute()
+
+    return redirect("/community")
+
+
+@app.route("/community/transaction", methods=["POST"])
+def community_transaction():
+    db = _sb(); uid = _uid()
+    item_id=int(request.form["item_id"]); friend_id=request.form["friend_id"]
+    tx_type=request.form.get("transaction_type","loan"); qty=max(1,int(request.form.get("quantity",1)))
+    price_raw=(request.form.get("price") or "").strip(); price=float(price_raw) if price_raw else None
+    item=_get_item(db,item_id)
+    if not item or int(item.get("quantity") or 0) < qty: return redirect("/community")
+    a,b=sorted([uid,friend_id])
+    friendship=db.table("friendships").select("id").eq("user_a",a).eq("user_b",b).eq("status","accepted").limit(1).execute().data or []
+    if not friendship: return redirect("/community")
+    db.table("card_transactions").insert({"owner_id":uid,"friend_id":friend_id,"card_id":item["card_id"],"source_item_id":item_id,"transaction_type":tx_type,"quantity":qty,"price":price if tx_type=="sale" else None,"status":"pending"}).execute()
+    return redirect("/community")
+
+
+@app.route("/community/return/<int:transaction_id>", methods=["POST"])
+def community_return(transaction_id):
+    _sb().rpc("return_loaned_card", {"p_transaction_id": transaction_id}).execute()
+    return redirect("/tracker")
+
+
+@app.route("/community/return-borrowed/<int:transaction_id>", methods=["POST"])
+def community_return_borrowed(transaction_id):
+    _sb().rpc("return_loaned_card", {"p_transaction_id": transaction_id}).execute()
+    return redirect("/tracker")
+
+
+
+PROFILE_HTML = """
+<!doctype html>
+<html>
+<head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Profile</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<div class="nav-bar"><a href="/">Collection</a><a href="/tracker">Card Tracker</a><a href="/community">Community</a></div>
+<h1>Profile</h1>
+<section class="panel profile-page-card">
+<form method="post" action="/profile">
+<label>Username
+<input type="text" name="username" minlength="3" maxlength="24" value="{{ username or '' }}" placeholder="Choose a username" required>
+</label>
+<p class="hint">3–24 characters. Letters, numbers and underscores only.</p>
+<button type="submit" class="primary">Save Username</button>
+</form>
+{% if message %}<div class="alert {{ 'success' if success else 'error' }}">{{ message }}</div>{% endif %}
+</section>
+
+<section class="panel danger-zone">
+<h2>Delete Account</h2>
+<p class="hint">This permanently deletes your account and app data. This cannot be undone.</p>
+<form method="post" action="/profile/delete" onsubmit="return confirm('Permanently delete your account? This cannot be undone.');">
+<input type="text" name="confirm" placeholder="Type DELETE to confirm" required>
+<button type="submit" class="danger">Delete Account</button>
+</form>
+</section>
+</body>
+</html>
+"""
+
+PENDING_OFFERS_HTML = """
+<!doctype html>
+<html>
+<head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pending Loans / Sales</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<div class="nav-bar"><a href="/">Collection</a><a href="/tracker">Card Tracker</a><a href="/community">Community</a></div>
+<a href="/profile" class="back-link">&larr; Profile</a>
+<h1>Pending Loans / Sales</h1>
+<p class="hint">Offers you sent that have not been accepted or declined yet.</p>
+<section class="panel">
+{% for offer in offers %}
+<div class="pending-offer-row">
+<div>
+<strong>{{ offer.card_name }}</strong>
+<div class="muted">{{ offer.transaction_type|title }} · {{ offer.quantity }}x → @{{ offer.friend_username or offer.friend_email }}</div>
+{% if offer.transaction_type == 'sale' and offer.price is not none %}
+<div class="muted">Price: ₱{{ '%.2f'|format(offer.price) }}</div>
+{% endif %}
+</div>
+<form method="post" action="/pending-offers/{{ offer.id }}/delete"
+      onsubmit="return confirm('Delete this pending offer?');">
+<button type="submit" class="danger">Delete</button>
+</form>
+</div>
+{% else %}
+<p class="empty">You have no pending loan or sale offers.</p>
+{% endfor %}
+</section>
+</body>
+</html>
+"""
+
+
+@app.route("/profile", methods=["GET", "POST"])
+def profile_page():
+    db = _sb()
+    uid = _uid()
+    message = None
+    success = False
+
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_]{3,24}", username):
+            message = "Username must be 3–24 characters using only letters, numbers, or underscores."
+        else:
+            try:
+                db.table("profiles").update({"username": username}).eq("user_id", uid).execute()
+                message = "Username saved."
+                success = True
+            except Exception:
+                message = "That username is already taken."
+
+    rows = db.table("profiles").select("username").eq("user_id", uid).limit(1).execute().data or []
+    username = rows[0].get("username") if rows else None
+    return render_template_string(PROFILE_HTML, username=username, message=message, success=success)
+
+
+@app.route("/pending-offers")
+def pending_offers_page():
+    db = _sb()
+    uid = _uid()
+    rows = (
+        db.table("card_transactions").select("*")
+        .eq("owner_id", uid).eq("status", "pending")
+        .order("created_at", desc=True).execute()
+    ).data or []
+    cards = _card_map(db, [r.get("card_id") for r in rows])
+    friend_ids = list({r.get("friend_id") for r in rows if r.get("friend_id")})
+    profiles = {}
+    if friend_ids:
+        profiles = {
+            p["user_id"]: p
+            for p in db.table("profiles").select("user_id,email,username").in_("user_id", friend_ids).execute().data or []
+        }
+    offers = []
+    for row in rows:
+        friend = profiles.get(row.get("friend_id"), {})
+        offers.append({
+            **row,
+            "card_name": cards.get(row.get("card_id"), {}).get("name", "Unknown card"),
+            "friend_email": friend.get("email", "another user"),
+            "friend_username": friend.get("username"),
+        })
+    return render_template_string(PENDING_OFFERS_HTML, offers=offers)
+
+
+@app.route("/pending-offers/<int:transaction_id>/delete", methods=["POST"])
+def delete_pending_offer(transaction_id):
+    db = _sb()
+    uid = _uid()
+    db.table("card_transactions").delete().eq("id", transaction_id).eq("owner_id", uid).eq("status", "pending").execute()
+    return redirect("/pending-offers")
+
+
+@app.route("/profile/delete", methods=["POST"])
+def delete_profile_account():
+    if (request.form.get("confirm") or "").strip() != "DELETE":
+        return redirect("/profile")
+    # SECURITY DEFINER RPC deletes auth.users row and cascading app data.
+    _sb().rpc("delete_my_account").execute()
+    session.clear()
+    return redirect("/login")
+
+
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MTG Collection - Login</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="auth-page">
+<div class="auth-shell">
+<div class="auth-brand">
+<div class="auth-mark">MTG</div>
+<h1>MTG Collection Tracker</h1>
+<p>Your cards, decks, binders, and boxes in one place.</p>
+</div>
+<div class="auth-card">
+<h2>Welcome back</h2>
+{% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+<form method="POST">
+<label for="email">Email</label>
+<input id="email" type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
+<label for="password">Password</label>
+<input id="password" type="password" name="password" placeholder="Enter your password" autocomplete="current-password" required>
+<button type="submit">Log in</button>
+</form>
+<p class="auth-footer">Don't have an account? <a href="/signup">Create account</a></p>
+</div>
+</div>
+</body>
+</html>
+"""
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -2057,53 +3237,34 @@ SIGNUP_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>MTG Collection - Sign Up</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MTG Collection - Sign Up</title>
+<link rel="stylesheet" href="/static/style.css">
 </head>
-
-<body>
-
-    <h1>Create Account</h1>
-
-    {% if error %}
-        <p style="color:red;">{{ error }}</p>
-    {% endif %}
-
-    {% if message %}
-        <p>{{ message }}</p>
-    {% endif %}
-
-    <form method="POST">
-
-        <label>Email</label><br>
-        <input
-            type="email"
-            name="email"
-            required
-        ><br><br>
-
-        <label>Password</label><br>
-        <input
-            type="password"
-            name="password"
-            minlength="6"
-            required
-        ><br><br>
-
-        <button type="submit">
-            Create Account
-        </button>
-
-    </form>
-
-    <p>
-        Already have an account?
-        <a href="/login">Login</a>
-    </p>
-
+<body class="auth-page">
+<div class="auth-shell">
+<div class="auth-brand">
+<div class="auth-mark">MTG</div>
+<h1>Build your collection</h1>
+<p>Create an account to start tracking your cards.</p>
+</div>
+<div class="auth-card">
+<h2>Create account</h2>
+{% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+{% if message %}<div class="alert success">{{ message }}</div>{% endif %}
+<form method="POST">
+<label for="email">Email</label>
+<input id="email" type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
+<label for="password">Password</label>
+<input id="password" type="password" name="password" minlength="6" placeholder="At least 6 characters" autocomplete="new-password" required>
+<button type="submit">Create account</button>
+</form>
+<p class="auth-footer">Already have an account? <a href="/login">Log in</a></p>
+</div>
+</div>
 </body>
 </html>
 """
-
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
