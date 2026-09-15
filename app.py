@@ -26,6 +26,7 @@ from add_card import search_all_printings, fetch_card_by_id, fetch_card_by_name,
 from deck_logic import find_real_sources, total_real_available, move_real_into_deck, find_decks_missing_card, fill_missing_in_deck, check_deck_legality, FORMAT_RULES
 from dotenv import load_dotenv
 from supabase import create_client
+from supabase_auth.errors import AuthApiError
 
 load_dotenv()
 
@@ -70,6 +71,14 @@ def _uid():
     if not user_id:
         raise RuntimeError("You must be logged in.")
     return user_id
+
+@app.errorhandler(RuntimeError)
+def handle_runtime_error(error):
+    if str(error) == "AUTH_REQUIRED":
+        session.clear()
+        return redirect("/login")
+    raise error
+
 
 
 def _card_map(db, card_ids):
@@ -3321,17 +3330,34 @@ def logout():
     return redirect("/login")
 
 def get_user_supabase():
-    if "access_token" not in session:
+    access_token = session.get("access_token")
+    refresh_token = session.get("refresh_token")
+    if not access_token or not refresh_token:
         return None
 
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    try:
+        auth_response = client.auth.set_session(access_token, refresh_token)
+        auth_session = getattr(auth_response, "session", None)
 
-    client.auth.set_session(
-        session["access_token"],
-        session["refresh_token"]
-    )
+        # Supabase refresh tokens rotate. Always save the newest pair.
+        if auth_session:
+            if getattr(auth_session, "access_token", None):
+                session["access_token"] = auth_session.access_token
+            if getattr(auth_session, "refresh_token", None):
+                session["refresh_token"] = auth_session.refresh_token
+            user = getattr(auth_session, "user", None)
+            if user:
+                if getattr(user, "id", None):
+                    session["user_id"] = user.id
+                if getattr(user, "email", None):
+                    session["email"] = user.email
+        return client
 
-    return client
-
-if __name__ == "__main__":
-    app.run(debug=True)
+    except AuthApiError:
+        # Stale/revoked refresh token: log out cleanly instead of Render 500.
+        session.clear()
+        return None
+    except Exception:
+        session.clear()
+        return None
