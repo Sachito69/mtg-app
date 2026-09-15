@@ -13,10 +13,12 @@ Press Ctrl+C in the terminal to stop it when you're done.
 from flask import Flask, render_template_string, request, redirect, jsonify
 import re
 import sqlite3
+
 from add_card import search_all_printings, fetch_card_by_id, fetch_card_by_name, fetch_card_by_set_number, parse_bulk_line, save_card, save_to_collection, autocomplete_card_name
 from deck_logic import find_real_sources, total_real_available, move_real_into_deck, find_decks_missing_card, fill_missing_in_deck, check_deck_legality, FORMAT_RULES
 
 app = Flask(__name__)
+
 
 # The order deck cards are grouped in -- matches how most players sort a
 # decklist. Anything not in this list (unusual card types) is grouped
