@@ -925,3 +925,79 @@ dialog.deck-modal textarea { height: 130px; }
 @media (max-width: 520px) {
     .pending-offer-row { align-items: flex-start; }
 }
+
+
+/* ---------- Deck page: compact cards and side-by-side type groups ---------- */
+.deck-type-layout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 18px;
+    align-items: start;
+}
+.deck-type-section { min-width: 0; }
+.deck-type-section .type-heading { margin-top: 0; }
+
+/* 260px -> 169px = 35% smaller */
+.deck-type-section .fan { width: 169px; }
+.deck-type-section .fan-card img { width: 169px; }
+.deck-type-section .fan-card { margin-top: -213px; }
+.deck-type-section .fan-card:first-child { margin-top: 0; }
+
+/* Grid cards approximately 35% smaller too. */
+.deck-type-section .grid-wrap {
+    grid-template-columns: repeat(auto-fill, minmax(98px, 1fr));
+    gap: 10px;
+}
+.deck-type-section .grid-cell { max-width: 120px; }
+
+@media (max-width: 620px) {
+    .deck-type-layout { grid-template-columns: 1fr; }
+}
+
+
+/* Deck visual stacks + visual grid use the exact same card image width. */
+.deck-type-section .fan,
+.deck-type-section .fan-card img,
+.deck-type-section .grid-cell,
+.deck-type-section .grid-cell .stack-thumb,
+.deck-type-section .grid-cell .stack-thumb img {
+    width: 169px;
+    max-width: 169px;
+}
+
+.deck-type-section .grid-wrap {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 169px);
+    gap: 12px;
+    align-items: start;
+}
+
+.deck-type-section .grid-cell .stack-thumb img {
+    height: auto;
+    display: block;
+}
+
+.deck-type-section .fan-card {
+    margin-top: -213px;
+}
+
+@media (max-width: 620px) {
+    .deck-type-section .fan,
+    .deck-type-section .fan-card img,
+    .deck-type-section .grid-cell,
+    .deck-type-section .grid-cell .stack-thumb,
+    .deck-type-section .grid-cell .stack-thumb img {
+        width: 169px;
+        max-width: 169px;
+    }
+}
+
+
+/* Separate physical inventory from cards currently lent to friends. */
+.tracker-card-tile:has(.lent-tag) {
+    border-style: dashed;
+}
+.lent-tag {
+    margin-top: 8px;
+    font-weight: 700;
+}

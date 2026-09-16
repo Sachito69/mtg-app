@@ -45,17 +45,43 @@ TYPE_ORDER = ["Creature", "Planeswalker", "Instant", "Sorcery", "Artifact", "Enc
 
 
 def group_cards_by_type(cards):
-    """Groups a list of card rows by their primary type (e.g. "Creature"), in a sensible order."""
+    """Put every deck card into exactly one simple card-type group."""
     groups = {}
+
+    # Priority intentionally handles mixed types:
+    # Artifact Creature -> Creature
+    # Legendary Creature -> Creature
+    # Artifact Land -> Land
+    priority = (
+        "Creature",
+        "Land",
+        "Planeswalker",
+        "Instant",
+        "Sorcery",
+        "Artifact",
+        "Enchantment",
+        "Battle",
+    )
+
     for card in cards:
-        primary_type = (card["type_line"] or "Other").split(" \u2014 ")[0]
+        type_line = card.get("type_line") or ""
+        primary_type = next((card_type for card_type in priority if card_type in type_line), "Other")
         groups.setdefault(primary_type, []).append(card)
 
+    order = list(priority)
+
     def sort_key(type_name):
-        return (TYPE_ORDER.index(type_name), "") if type_name in TYPE_ORDER else (len(TYPE_ORDER), type_name)
+        return (order.index(type_name), "") if type_name in order else (len(order), type_name)
 
     ordered_names = sorted(groups.keys(), key=sort_key)
-    return [{"type_name": name, "cards": groups[name], "count": len(groups[name])} for name in ordered_names]
+    return [
+        {
+            "type_name": name,
+            "cards": groups[name],
+            "count": sum(card.get("quantity", 0) for card in groups[name]),
+        }
+        for name in ordered_names
+    ]
 
 
 def _sb():
@@ -233,6 +259,7 @@ PAGE_TEMPLATE = """
     <div class="grid">
         {% for card in cards %}
         <div class="card-tile tracker-card-tile">
+            {% if not card.get('is_lent_out') %}
             <details class="card-options tracker-card-options">
                 <summary title="Card options">&#8942;</summary>
                 <div class="options-dropdown">
@@ -252,6 +279,7 @@ PAGE_TEMPLATE = """
                     {% endif %}
                 </div>
             </details>
+            {% endif %}
             {% if card['image_url'] %}
             <img src="{{ card['image_url'] }}">
             {% else %}
@@ -264,9 +292,9 @@ PAGE_TEMPLATE = """
                     <span>{{ card['quantity'] }}x &middot; {{ card['condition'] }}</span>
                     {% if card['foil'] %}<span class="foil-tag">FOIL</span>{% endif %}
                 </div>
-                {% if card['lent_to'] %}
+                {% if card.get('is_lent_out') %}
                     {% for loan in card['lent_to'] %}
-                    <div class="lent-tag">Lent {{ loan.quantity }}x to @{{ loan.username or loan.email }}</div>
+                    <div class="lent-tag">Lent out: {{ loan.quantity }}x to @{{ loan.username or loan.email }}</div>
                     {% endfor %}
                 {% else %}
                 <div class="location-tag">
@@ -442,16 +470,17 @@ DECK_DETAIL_TEMPLATE = """
     {% if grouped_cards %}
     <div class="view-switcher">
         <label>Show as:
-            <select id="view-mode" onchange="setDeckView(this.value)">
-                <option value="text">Text (qty, name, set)</option>
-                <option value="stacks">Visual stacks</option>
-                <option value="grid">Visual grid</option>
+            <select id="view-mode" onchange="setDeckView(this.value, true)">
+                <option value="text" {% if deck_view == "text" %}selected{% endif %}>Text (qty, name, set)</option>
+                <option value="stacks" {% if deck_view == "stacks" %}selected{% endif %}>Visual stacks</option>
+                <option value="grid" {% if deck_view == "grid" %}selected{% endif %}>Visual grid</option>
             </select>
         </label>
     </div>
 
-    <div id="view-text">
+    <div id="view-text" class="deck-type-layout">
         {% for group in grouped_cards %}
+        <section class="deck-type-section">
         <h4 class="type-heading">{{ group['type_name'] }} ({{ group['count'] }})</h4>
         <table>
             <tr><th>Name</th><th>Set</th><th>Qty</th><th></th><th></th></tr>
@@ -465,11 +494,13 @@ DECK_DETAIL_TEMPLATE = """
             </tr>
             {% endfor %}
         </table>
+        </section>
         {% endfor %}
     </div>
 
-    <div id="view-stacks" style="display:none;">
+    <div id="view-stacks" class="deck-type-layout" style="display:none;">
         {% for group in grouped_cards %}
+        <section class="deck-type-section">
         <h4 class="type-heading">{{ group['type_name'] }} ({{ group['count'] }})</h4>
         <div class="fan">
             {% for card in group['cards'] %}
@@ -481,11 +512,13 @@ DECK_DETAIL_TEMPLATE = """
             </div>
             {% endfor %}
         </div>
+        </section>
         {% endfor %}
     </div>
 
-    <div id="view-grid" style="display:none;">
+    <div id="view-grid" class="deck-type-layout" style="display:none;">
         {% for group in grouped_cards %}
+        <section class="deck-type-section">
         <h4 class="type-heading">{{ group['type_name'] }} ({{ group['count'] }})</h4>
         <div class="grid-wrap">
             {% for card in group['cards'] %}
@@ -499,6 +532,7 @@ DECK_DETAIL_TEMPLATE = """
             </div>
             {% endfor %}
         </div>
+        </section>
         {% endfor %}
     </div>
     {% else %}
@@ -598,11 +632,28 @@ async function runBulkEdit() {
 </script>
 
 <script>
-function setDeckView(mode) {
-    document.getElementById('view-text').style.display = (mode === 'text') ? 'block' : 'none';
-    document.getElementById('view-stacks').style.display = (mode === 'stacks') ? 'block' : 'none';
-    document.getElementById('view-grid').style.display = (mode === 'grid') ? 'block' : 'none';
+function setDeckView(mode, savePreference) {
+    const textView = document.getElementById('view-text');
+    const stackView = document.getElementById('view-stacks');
+    const gridView = document.getElementById('view-grid');
+
+    textView.style.display = (mode === 'text') ? 'grid' : 'none';
+    stackView.style.display = (mode === 'stacks') ? 'grid' : 'none';
+    gridView.style.display = (mode === 'grid') ? 'grid' : 'none';
+
+    if (savePreference) {
+        fetch('/settings/deck-view', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({deck_view: mode})
+        }).catch(function() {});
+    }
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    const selector = document.getElementById('view-mode');
+    if (selector) setDeckView(selector.value, false);
+});
 
 (function() {
     const input = document.getElementById('deck-card-name-input');
@@ -966,6 +1017,19 @@ SETTINGS_TEMPLATE = """
                 </div>
             </label>
         </div>
+        <div class="setting-row">
+            <label for="preferred_deck_view">
+                <div>
+                    <div class="setting-title">Preferred deck "Show as"</div>
+                    <div class="setting-desc">Choose the view decks should use by default. Changing the Show as dropdown on a deck also saves this preference.</div>
+                    <select id="preferred_deck_view" name="preferred_deck_view">
+                        <option value="text" {% if preferred_deck_view == "text" %}selected{% endif %}>Text</option>
+                        <option value="stacks" {% if preferred_deck_view == "stacks" %}selected{% endif %}>Visual stacks</option>
+                        <option value="grid" {% if preferred_deck_view == "grid" %}selected{% endif %}>Visual grid</option>
+                    </select>
+                </div>
+            </label>
+        </div>
         <button type="submit">Save</button>
     </form>
     {% if saved %}<p class="saved-note">Saved.</p>{% endif %}
@@ -1006,17 +1070,17 @@ def show_collection():
             for p in db.table("profiles").select("user_id,email,username").in_("user_id", lender_ids).execute().data or []
         }
 
-    # Active loans sent by this user. These keep the lender's original card
-    # in their tracker, but label it with the borrower instead of "Unsorted".
+    # Active outgoing loans are rendered as separate tracker tiles.
     sent_loans = (
         db.table("card_transactions")
-        .select("id,source_item_id,friend_id,quantity")
+        .select("id,card_id,friend_id,quantity,loan_condition,loan_foil")
         .eq("owner_id", uid)
         .eq("transaction_type", "loan")
         .eq("status", "accepted")
         .is_("returned_at", "null")
         .execute()
     ).data or []
+
     borrower_ids = list({loan.get("friend_id") for loan in sent_loans if loan.get("friend_id")})
     borrower_profiles = {}
     if borrower_ids:
@@ -1024,9 +1088,6 @@ def show_collection():
             p["user_id"]: p
             for p in db.table("profiles").select("user_id,email,username").in_("user_id", borrower_ids).execute().data or []
         }
-    loans_sent_by_item = {}
-    for loan in sent_loans:
-        loans_sent_by_item.setdefault(loan.get("source_item_id"), []).append(loan)
 
     rows = []
     primary_types_set = set()
@@ -1091,15 +1152,64 @@ def show_collection():
             "loaned_from_user_id": lender_id,
             "loaned_from_email": lender_profiles.get(lender_id, {}).get("email", "another user") if lender_id else None,
             "loan_transaction_id": item.get("loan_transaction_id"),
-            "lent_to": [
-                {
-                    "transaction_id": loan.get("id"),
-                    "quantity": loan.get("quantity"),
-                    "username": borrower_profiles.get(loan.get("friend_id"), {}).get("username"),
-                    "email": borrower_profiles.get(loan.get("friend_id"), {}).get("email", "another user"),
-                }
-                for loan in loans_sent_by_item.get(item["id"], [])
-            ],
+            "lent_to": [],
+        })
+
+    # Add one separate tile per active outgoing loan. These are not
+    # collection_items, so they cannot be edited, sold, loaned again, or placed
+    # in a deck while they are physically with another user.
+    lent_cards = _card_map(db, [loan.get("card_id") for loan in sent_loans])
+    for loan in sent_loans:
+        card = lent_cards.get(loan.get("card_id"))
+        if not card:
+            continue
+
+        name = card.get("name") or ""
+        type_line = card.get("type_line") or ""
+        colors = card.get("colors") or []
+        cmc = card.get("cmc")
+
+        if search_query and search_query.lower() not in name.lower():
+            continue
+        if color_filters:
+            matches = any(
+                (f == "C" and not colors)
+                or (f == "M" and len(colors) > 1)
+                or (f in ("W","U","B","R","G") and f in colors)
+                for f in color_filters
+            )
+            if not matches:
+                continue
+        if type_filter != "all" and type_filter not in type_line:
+            continue
+        if cmc_filter != "all" and (cmc is None or float(cmc) != int(cmc_filter)):
+            continue
+
+        borrower = borrower_profiles.get(loan.get("friend_id"), {})
+        rows.append({
+            "id": None,
+            "name": name,
+            "set_name": card.get("set_name"),
+            "type_line": type_line,
+            "image_url": card.get("image_url"),
+            "colors": colors,
+            "cmc": cmc,
+            "quantity": loan.get("quantity") or 1,
+            "condition": loan.get("loan_condition") or "NM",
+            "foil": bool(loan.get("loan_foil")),
+            "location_name": None,
+            "location_kind": None,
+            "loaned_from_user_id": None,
+            "loaned_from_email": None,
+            "loan_transaction_id": None,
+            "is_lent_out": True,
+            "lent_transaction_id": loan.get("id"),
+            "lent_to": [{
+                "transaction_id": loan.get("id"),
+                "quantity": loan.get("quantity") or 1,
+                "username": borrower.get("username"),
+                "email": borrower.get("email", "another user"),
+            }],
         })
 
     rows.sort(key=lambda row: (row.get("name") or "").lower())
@@ -1511,7 +1621,7 @@ def containers_page():
 
     item_result = (
         db.table("collection_items")
-        .select("container_id")
+        .select("container_id,quantity")
         .eq("user_id", uid)
         .execute()
     )
@@ -1519,7 +1629,7 @@ def containers_page():
     for item in item_result.data or []:
         cid = item.get("container_id")
         if cid is not None:
-            counts[cid] = counts.get(cid, 0) + 1
+            counts[cid] = counts.get(cid, 0) + (item.get("quantity") or 0)
 
     for container in containers:
         container["card_count"] = counts.get(container["id"], 0)
@@ -1654,6 +1764,7 @@ def container_detail(container_id):
             grouped_cards=group_cards_by_type(cards),
             legality=legality,
             missing_text=missing_text,
+            deck_view=get_setting(db, "preferred_deck_view", "stacks"),
         )
 
     cards.sort(key=lambda row: (row["name"] or "").lower())
@@ -2317,6 +2428,18 @@ def fill_missing():
     return redirect(fallback_url)
 
 
+@app.route("/settings/deck-view", methods=["POST"])
+def save_deck_view():
+    db = _sb()
+    data = request.get_json(silent=True) or {}
+    mode = data.get("deck_view")
+    if mode not in ("text", "stacks", "grid"):
+        return jsonify({"ok": False, "error": "Invalid deck view"}), 400
+    set_setting(db, "preferred_deck_view", mode)
+    return jsonify({"ok": True})
+
+
+
 @app.route("/settings", methods=["GET", "POST"])
 def settings_page():
     db = _sb()
@@ -2327,11 +2450,19 @@ def settings_page():
             "auto_pick_version",
             "true" if request.form.get("auto_pick_version") else "false",
         )
+        preferred_deck_view = request.form.get("preferred_deck_view", "stacks")
+        if preferred_deck_view not in ("text", "stacks", "grid"):
+            preferred_deck_view = "stacks"
+        set_setting(db, "preferred_deck_view", preferred_deck_view)
         saved = True
     auto_pick_version = get_setting(db, "auto_pick_version", "true") == "true"
+    preferred_deck_view = get_setting(db, "preferred_deck_view", "stacks")
+    if preferred_deck_view not in ("text", "stacks", "grid"):
+        preferred_deck_view = "stacks"
     return render_template_string(
         SETTINGS_TEMPLATE,
         auto_pick_version=auto_pick_version,
+        preferred_deck_view=preferred_deck_view,
         saved=saved,
     )
 
@@ -2516,6 +2647,38 @@ def notification_accept_offer(transaction_id):
 @app.route("/notifications/offer/<int:transaction_id>/decline",methods=["POST"])
 def notification_decline_offer(transaction_id):
     _sb().rpc("respond_to_card_offer",{"p_transaction_id":transaction_id,"p_accept":False}).execute(); return redirect("/notifications")
+
+NOTIFICATIONS_HTML = """
+<!doctype html>
+<html>
+<head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pending Loans / Sales</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<div class="nav-bar"><a href="/">Collection</a><a href="/tracker">Card Tracker</a><a href="/community">Community</a></div>
+<a href="/profile" class="back-link">&larr; Profile</a>
+<h1>Pending Loans / Sales</h1>
+<p class="hint">Offers you sent that have not been accepted or declined yet.</p>
+<section class="panel">
+{% for offer in offers %}
+<div class="pending-offer-row">
+<div>
+<strong>{{ offer.card_name }}</strong>
+<div class="muted">{{ offer.transaction_type|title }} · {{ offer.quantity }}x → @{{ offer.friend_username or offer.friend_email }}</div>
+{% if offer.transaction_type == 'sale' and offer.price is not none %}
+<div class="muted">Price: ₱{{ '%.2f'|format(offer.price) }}</div>
+{% endif %}
+</div>
+<form method="post" action="/pending-offers/{{ offer.id }}/delete"
+      onsubmit="return confirm('Delete this pending offer?');">
+<button type="submit" class="danger">Delete</button>
+</form>
+</div>
+{% else %}
+<p class="empty">You have no pending loan or sale offers.</p>
+{% endfor %}
+</section>
+</body>
+</html>
+"""
 
 COMMUNITY_HTML = """
 <!doctype html>
@@ -2940,6 +3103,7 @@ def community_trade(friend_id, transaction_type):
     item_rows = (
         db.table("collection_items").select("*")
         .eq("user_id", uid).eq("is_missing", False)
+        .is_("loaned_from_user_id", "null")
         .gt("quantity", 0).execute()
     ).data or []
 
@@ -3262,6 +3426,8 @@ SIGNUP_HTML = """
 {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
 {% if message %}<div class="alert success">{{ message }}</div>{% endif %}
 <form method="POST">
+<label for="username">Username</label>
+<input id="username" type="username" name="username" placeholder="username" required>
 <label for="email">Email</label>
 <input id="email" type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
 <label for="password">Password</label>
@@ -3280,11 +3446,13 @@ def signup():
 
     if request.method == "POST":
 
+        username = request.form["username"]
         email = request.form["email"]
         password = request.form["password"]
 
         try:
             response = supabase.auth.sign_up({
+                "username": username,
                 "email": email,
                 "password": password,
             })
@@ -3361,3 +3529,7 @@ def get_user_supabase():
     except Exception:
         session.clear()
         return None
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
