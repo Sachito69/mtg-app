@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pending Loans / Sales</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<div class="nav-bar"><a href="/">Collection</a><a href="/tracker">Card Tracker</a><a href="/community">Community</a></div>
+<a href="/profile" class="back-link">&larr; Profile</a>
+<h1>Pending Loans / Sales</h1>
+<p class="hint">Offers you sent that have not been accepted or declined yet.</p>
+<section class="panel">
+{% for offer in offers %}
+<div class="pending-offer-row">
+<div>
+<strong>{{ offer.card_name }}</strong>
+<div class="muted">{{ offer.transaction_type|title }} · {{ offer.quantity }}x → @{{ offer.friend_username or offer.friend_email }}</div>
+{% if offer.transaction_type == 'sale' and offer.price is not none %}
+<div class="muted">Price: ₱{{ '%.2f'|format(offer.price) }}</div>
+{% endif %}
+</div>
+<form method="post" action="/pending-offers/{{ offer.id }}/delete"
+      onsubmit="return confirm('Delete this pending offer?');">
+<button type="submit" class="danger">Delete</button>
+</form>
+</div>
+{% else %}
+<p class="empty">You have no pending loan or sale offers.</p>
+{% endfor %}
+</section>
+</body>
+</html>

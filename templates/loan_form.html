@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Loan out {{ item['name'] }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+    <h1>Loan out: {{ item['name'] }}</h1>
+    <p class="avail">{{ available }} available to loan out of {{ item['quantity'] }} total (the rest is already loaned).</p>
+    {% if available > 0 %}
+    <form method="POST">
+        <label>Borrower's name
+            <input type="text" name="borrower_name" required autofocus>
+        </label>
+        <label>Quantity
+            <input type="number" name="quantity_out" value="1" min="1" max="{{ available }}" required>
+        </label>
+        <button type="submit">Mark as loaned</button>
+    </form>
+    {% else %}
+    <p style="color:#e07a5f;">All copies of this card are already loaned out.</p>
+    {% endif %}
+    <p style="margin-top:16px;"><a href="/tracker">&larr; Back to card tracker</a></p>
+</body>
+</html>

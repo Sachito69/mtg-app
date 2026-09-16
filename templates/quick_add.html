@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add {{ card['name'] }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+    <h1>Add this card</h1>
+    <div class="quick-card">
+        {% if card.get('image_uris') %}<img src="{{ card['image_uris']['normal'] }}">{% endif %}
+        <div class="quick-info">
+            <b>{{ card['name'] }}</b>
+            <div>{{ card.get('set_name') }} ({{ card.get('set') }})</div>
+            <div>{{ card.get('type_line') }}</div>
+        </div>
+    </div>
+    <form class="details" method="POST" action="/add/confirm">
+        <input type="hidden" name="scryfall_id" value="{{ card['id'] }}">
+        <input type="hidden" name="container_id" value="{{ container_id or '' }}">
+        <label>Quantity
+            <input type="number" name="quantity" value="1" min="1">
+        </label>
+        <label>Condition
+            <select name="condition">
+                {% for c in ['NM', 'LP', 'MP', 'HP', 'DMG'] %}
+                <option value="{{ c }}">{{ c }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label><input type="checkbox" name="foil" style="width:auto;"> Foil</label>
+        <button type="submit">Add this printing</button>
+    </form>
+    <p class="browse-note">
+        <form method="POST" action="/add" style="display:inline;">
+            <input type="hidden" name="card_name" value="{{ card_name }}">
+            <input type="hidden" name="container_id" value="{{ container_id or '' }}">
+            <input type="hidden" name="force_picker" value="1">
+            <a href="#" onclick="this.closest('form').submit(); return false;">Not the right printing? Browse all versions instead &rarr;</a>
+        </form>
+    </p>
+</body>
+</html>

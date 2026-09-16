@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ container['name'] }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+    <h1>{{ container['name'] }} <span class="kind-tag">({{ container['kind'] }}{% if container['format'] %} &middot; {{ container['format'] }}{% endif %})</span></h1>
+    {% if cards %}
+    <table>
+        <tr><th>Image</th><th>Name</th><th>Set</th><th>Qty</th><th>Condition</th></tr>
+        {% for card in cards %}
+        <tr>
+            <td>{% if card['image_url'] %}<img src="{{ card['image_url'] }}">{% endif %}</td>
+            <td>{{ card['name'] }}</td>
+            <td>{{ card['set_name'] }}</td>
+            <td>{{ card['quantity'] }}</td>
+            <td>{{ card['condition'] }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p class="empty">Nothing filed here yet. Edit a card in your collection and assign it to this container.</p>
+    {% endif %}
+    <p style="margin-top:20px;"><a href="/">&larr; Back to containers</a></p>
+</body>
+</html>

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Card Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+    <div class="tracker-heading">
+        <h1>Card Tracker</h1>
+        <button type="button" class="primary tracker-add-btn"
+                onclick="document.getElementById('add-card-modal').showModal()">+ Add Card</button>
+    </div>
+    <form method="GET" class="tracker-toolbar" id="tracker-filter-form">
+        <div class="tracker-search-wrap">
+            <input type="search" name="q" value="{{ search_query }}" placeholder="Search your cards...">
+            <button type="submit" class="secondary">Search</button>
+        </div>
+        <button type="button" class="secondary filter-popup-button"
+                onclick="document.getElementById('tracker-filter-modal').showModal()">
+            Filters{% if active_filter_count %} ({{ active_filter_count }}){% endif %}
+        </button>
+
+        <dialog id="tracker-filter-modal" class="deck-modal tracker-filter-modal">
+            <div class="filter-modal-heading">
+                <h2>Filter Cards</h2>
+                <button type="button" class="dialog-close"
+                        onclick="document.getElementById('tracker-filter-modal').close()">&times;</button>
+            </div>
+
+            <fieldset class="color-filter-fieldset">
+                <legend>Color</legend>
+                <div class="color-check-grid">
+                    {% for code, label in [('W','White'),('U','Blue'),('B','Black'),('R','Red'),('G','Green'),('C','Colorless'),('M','Multicolor')] %}
+                    <label class="check-option">
+                        <input type="checkbox" name="color" value="{{ code }}" {% if code in color_filters %}checked{% endif %}>
+                        <span>{{ label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </fieldset>
+
+            <label>Card type
+                <select name="ptype">
+                    <option value="all">All types</option>
+                    {% for t in primary_types %}
+                    <option value="{{ t }}" {% if type_filter == t %}selected{% endif %}>{{ t }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label>Mana value
+                <input type="number" name="cmc" min="0" step="1"
+                       value="{{ cmc_filter if cmc_filter != 'all' else '' }}"
+                       placeholder="Any">
+            </label>
+
+            <div class="modal-actions">
+                <a href="/tracker{% if search_query %}?q={{ search_query|urlencode }}{% endif %}" class="button-link secondary">Clear filters</a>
+                <button type="submit" class="primary">Apply Filters</button>
+            </div>
+        </dialog>
+    </form>
+    {% if cards %}
+    <div class="grid">
+        {% for card in cards %}
+        <div class="card-tile tracker-card-tile">
+            {% if not card.get('is_lent_out') %}
+            <details class="card-options tracker-card-options">
+                <summary title="Card options">&#8942;</summary>
+                <div class="options-dropdown">
+                    {% if card['loan_transaction_id'] %}
+                    <form method="POST" action="/community/return-borrowed/{{ card['loan_transaction_id'] }}"
+                          onsubmit="return confirm('Return this card to {{ card['loaned_from_email'] }}?');">
+                        <button type="submit">Return to lender</button>
+                    </form>
+                    {% else %}
+                    <a href="/edit/{{ card['id'] }}">Edit</a>
+                    <a href="/community/trade-picker/{{ card['id'] }}/loan">Loan</a>
+                    <a href="/community/trade-picker/{{ card['id'] }}/sale">Sell</a>
+                    <form method="POST" action="/delete/{{ card['id'] }}"
+                          onsubmit="return confirm('Remove this card from your collection?');">
+                        <button type="submit" class="danger">Delete</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </details>
+            {% endif %}
+            {% if card['image_url'] %}
+            <img src="{{ card['image_url'] }}">
+            {% else %}
+            <div class="no-image">No image</div>
+            {% endif %}
+            <div class="card-body">
+                <div class="name">{{ card['name'] }}</div>
+                <div class="meta">{{ card['set_name'] }} &middot; {{ card['type_line'] }}</div>
+                <div class="qty-row">
+                    <span>{{ card['quantity'] }}x &middot; {{ card['condition'] }}</span>
+                    {% if card['foil'] %}<span class="foil-tag">FOIL</span>{% endif %}
+                </div>
+                {% if card.get('is_lent_out') %}
+                    {% for loan in card['lent_to'] %}
+                    <div class="lent-tag">Lent out: {{ loan.quantity }}x to @{{ loan.username or loan.email }}</div>
+                    {% endfor %}
+                {% else %}
+                <div class="location-tag">
+                    {% if card['location_name'] %}In: {{ card['location_name'] }} ({{ card['location_kind'] }}){% else %}Unsorted{% endif %}
+                </div>
+                {% endif %}
+                {% if card['loan_transaction_id'] %}
+                <div class="borrowed-tag">Loaned from {{ card['loaned_from_email'] }}</div>
+                {% endif %}
+                {% if loans_by_item.get(card['id']) %}
+                <div class="loan-tag">
+                    {% for l in loans_by_item.get(card['id']) %}Loaned {{ l['quantity_out'] }}x to {{ l['borrower_name'] }}{% if not loop.last %}, {% endif %}{% endfor %}
+                </div>
+                {% endif %}
+
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">Your collection is empty so far. Click "+ Add Card" above to get started!</p>
+    {% endif %}
+
+    <dialog id="add-card-modal" class="deck-modal add-card-modal">
+        <form method="POST" action="/add">
+            <h2>Add a Card</h2>
+            <p class="modal-hint">Search for a Magic card by name.</p>
+            <input type="hidden" name="container_id" value="">
+            <label>Card name
+                <div class="autocomplete-wrap">
+                    <input type="text" name="card_name" id="tracker-card-name-input"
+                           placeholder="e.g. Lightning Bolt" required autocomplete="off">
+                    <div id="tracker-suggestions-box" class="suggestions-list"></div>
+                </div>
+            </label>
+            <div class="modal-actions">
+                <button type="button" class="secondary"
+                        onclick="document.getElementById('add-card-modal').close()">Cancel</button>
+                <button type="submit" class="primary">Find Card</button>
+            </div>
+        </form>
+    </dialog>
+
+<script>
+const addCardModal = document.getElementById('add-card-modal');
+const trackerCardInput = document.getElementById('tracker-card-name-input');
+const trackerSuggestions = document.getElementById('tracker-suggestions-box');
+let trackerAutocompleteTimer = null;
+
+addCardModal.addEventListener('click', function(event) {
+    if (event.target === addCardModal) addCardModal.close();
+});
+
+trackerCardInput.addEventListener('input', function() {
+    clearTimeout(trackerAutocompleteTimer);
+    const q = this.value.trim();
+    if (q.length < 2) {
+        trackerSuggestions.innerHTML = '';
+        trackerSuggestions.style.display = 'none';
+        return;
+    }
+    trackerAutocompleteTimer = setTimeout(async function() {
+        try {
+            const response = await fetch('/autocomplete?q=' + encodeURIComponent(q));
+            const names = await response.json();
+            trackerSuggestions.innerHTML = '';
+            names.forEach(function(name) {
+                const row = document.createElement('div');
+                row.className = 'suggestion-item';
+                row.textContent = name;
+                row.addEventListener('click', function() {
+                    trackerCardInput.value = name;
+                    trackerSuggestions.innerHTML = '';
+                    trackerSuggestions.style.display = 'none';
+                });
+                trackerSuggestions.appendChild(row);
+            });
+            trackerSuggestions.style.display = names.length ? 'block' : 'none';
+        } catch (e) {
+            trackerSuggestions.style.display = 'none';
+        }
+    }, 180);
+});
+</script>
+</body>
+</html>

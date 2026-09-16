@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add a card</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+    <h1>Add a card</h1>
+    <form method="POST" action="/add">
+        <input type="hidden" name="container_id" value="{{ container_id or '' }}">
+        <label>Card name<br>
+            <div class="autocomplete-wrap">
+                <input type="text" name="card_name" id="card-name-input" placeholder="e.g. Lightning Bolt" required autofocus autocomplete="off">
+                <div id="suggestions-box" class="suggestions-list"></div>
+            </div>
+        </label>
+        <button type="submit">Find printings</button>
+    </form>
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    <p style="margin-top:14px;"><a href="/bulk-add">Bulk add a list of cards instead &rarr;</a></p>
+    <p><a href="/tracker">&larr; Back to card tracker</a></p>
+
+<script>
+(function() {
+    const input = document.getElementById('card-name-input');
+    const box = document.getElementById('suggestions-box');
+    let debounceTimer;
+    input.addEventListener('input', function() {
+        clearTimeout(debounceTimer);
+        const q = input.value.trim();
+        if (q.length < 2) { box.innerHTML = ''; return; }
+        debounceTimer = setTimeout(async function() {
+            try {
+                const resp = await fetch('/card-suggestions?q=' + encodeURIComponent(q));
+                const names = await resp.json();
+                box.innerHTML = '';
+                names.forEach(function(name) {
+                    const item = document.createElement('div');
+                    item.className = 'suggestion-item';
+                    item.textContent = name;
+                    item.addEventListener('click', function() {
+                        input.value = name;
+                        box.innerHTML = '';
+                    });
+                    box.appendChild(item);
+                });
+            } catch (err) { box.innerHTML = ''; }
+        }, 200);
+    });
+    document.addEventListener('click', function(e) {
+        if (e.target !== input) box.innerHTML = '';
+    });
+})();
+</script>
+</body>
+</html>

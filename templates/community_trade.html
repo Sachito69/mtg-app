@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ transaction_type|title }} Cards</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email","User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+
+<div class="trade-page-header">
+<div>
+<a href="/community" class="back-link">&larr; Community</a>
+<h1>{{ transaction_type|title }} cards to {{ friend.email }}</h1>
+<p class="hint">Choose cards from your collection on the left. Your {{ transaction_type }} cart is on the right.</p>
+</div>
+</div>
+
+<form method="post" action="/community/trade/{{ friend.user_id }}/{{ transaction_type }}/send" id="trade-form">
+<div class="trade-split">
+<section class="trade-collection">
+<div class="trade-pane-heading">
+<h2>Your Collection</h2>
+<input type="search" id="trade-search" placeholder="Search cards...">
+</div>
+
+{% if items %}
+<div class="trade-card-grid" id="trade-card-grid">
+{% for item in items %}
+<div class="trade-card" data-name="{{ item.card_name|lower }}">
+{% if item.image_url %}
+<img src="{{ item.image_url }}" alt="{{ item.card_name }}">
+{% else %}
+<div class="no-image">No image</div>
+{% endif %}
+<div class="trade-card-body">
+<strong>{{ item.card_name }}</strong>
+<div class="muted">{{ item.quantity }} available{% if item.container_name %} · {{ item.container_name }}{% endif %}</div>
+<button type="button" class="secondary add-to-trade"
+        data-id="{{ item.id }}"
+        data-name="{{ item.card_name }}"
+        data-image="{{ item.image_url or '' }}"
+        data-max="{{ item.quantity }}" data-selected="{% if selected_item_id == item.id %}1{% else %}0{% endif %}">+ Add</button>
+</div>
+</div>
+{% endfor %}
+</div>
+{% else %}
+<p class="empty">No available cards in your collection.</p>
+{% endif %}
+</section>
+
+<aside class="trade-cart">
+<div class="trade-pane-heading">
+<h2>{{ transaction_type|title }} Cart</h2>
+<span class="pill" id="cart-count">0 cards</span>
+</div>
+<div id="trade-cart-items">
+<p class="empty" id="empty-cart">Choose cards from your collection.</p>
+</div>
+
+{% if transaction_type == "sale" %}
+<label class="trade-price-label">Total sale price
+<input type="number" name="price" min="0" step="0.01" placeholder="0.00">
+</label>
+{% endif %}
+
+<div id="trade-hidden-inputs"></div>
+<button type="submit" class="primary trade-send-button" id="send-trade" disabled>
+Send {{ transaction_type|title }} Offer
+</button>
+</aside>
+</div>
+</form>
+
+<script>
+const cart = new Map();
+const cartBox = document.getElementById('trade-cart-items');
+const hiddenBox = document.getElementById('trade-hidden-inputs');
+const countBadge = document.getElementById('cart-count');
+const sendButton = document.getElementById('send-trade');
+
+function renderCart() {
+    cartBox.innerHTML = '';
+    hiddenBox.innerHTML = '';
+    let total = 0;
+
+    if (cart.size === 0) {
+        cartBox.innerHTML = '<p class="empty">Choose cards from your collection.</p>';
+    }
+
+    cart.forEach((item, id) => {
+        total += item.qty;
+        const row = document.createElement('div');
+        row.className = 'trade-cart-row';
+        row.innerHTML = `
+            ${item.image ? `<img src="${item.image}" alt="">` : ''}
+            <div class="trade-cart-info">
+                <strong>${item.name}</strong>
+                <div class="cart-qty-controls">
+                    <button type="button" data-action="minus" data-id="${id}">−</button>
+                    <span>${item.qty}</span>
+                    <button type="button" data-action="plus" data-id="${id}">+</button>
+                    <button type="button" class="cart-remove" data-action="remove" data-id="${id}">Remove</button>
+                </div>
+            </div>`;
+        cartBox.appendChild(row);
+
+        const idInput = document.createElement('input');
+        idInput.type = 'hidden';
+        idInput.name = 'item_id';
+        idInput.value = id;
+        hiddenBox.appendChild(idInput);
+
+        const qtyInput = document.createElement('input');
+        qtyInput.type = 'hidden';
+        qtyInput.name = 'quantity';
+        qtyInput.value = item.qty;
+        hiddenBox.appendChild(qtyInput);
+    });
+
+    countBadge.textContent = total + (total === 1 ? ' card' : ' cards');
+    sendButton.disabled = cart.size === 0;
+}
+
+document.querySelectorAll('.add-to-trade').forEach(button => {
+    button.addEventListener('click', () => {
+        const id = button.dataset.id;
+        if (!cart.has(id)) {
+            cart.set(id, {
+                name: button.dataset.name,
+                image: button.dataset.image,
+                max: Number(button.dataset.max),
+                qty: 1
+            });
+        } else {
+            const item = cart.get(id);
+            if (item.qty < item.max) item.qty++;
+        }
+        renderCart();
+    });
+});
+
+document.querySelectorAll('.add-to-trade[data-selected="1"]').forEach(button => {
+    const id = button.dataset.id;
+    if (!cart.has(id)) {
+        cart.set(id, {
+            name: button.dataset.name,
+            image: button.dataset.image,
+            max: Number(button.dataset.max),
+            qty: 1
+        });
+    }
+});
+renderCart();
+
+cartBox.addEventListener('click', event => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const id = button.dataset.id;
+    const item = cart.get(id);
+    if (!item) return;
+
+    if (button.dataset.action === 'plus' && item.qty < item.max) item.qty++;
+    if (button.dataset.action === 'minus') {
+        item.qty--;
+        if (item.qty <= 0) cart.delete(id);
+    }
+    if (button.dataset.action === 'remove') cart.delete(id);
+    renderCart();
+});
+
+document.getElementById('trade-search').addEventListener('input', function() {
+    const q = this.value.trim().toLowerCase();
+    document.querySelectorAll('.trade-card').forEach(card => {
+        card.style.display = card.dataset.name.includes(q) ? '' : 'none';
+    });
+});
+</script>
+</body>
+</html>

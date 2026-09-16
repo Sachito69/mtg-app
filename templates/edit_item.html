@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Edit {{ item['name'] }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+    <h1>Edit: {{ item['name'] }}</h1>
+    <form method="POST">
+        <label>Quantity
+            <input type="number" name="quantity" value="{{ item['quantity'] }}" min="0" required>
+        </label>
+        <label>Condition
+            <select name="condition">
+                {% for c in ['NM', 'LP', 'MP', 'HP', 'DMG'] %}
+                <option value="{{ c }}" {% if item['condition'] == c %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>
+            <input type="checkbox" name="foil" style="width:auto;" {% if item['foil'] %}checked{% endif %}>
+            Foil
+        </label>
+        <label>Container
+            <select name="container_id">
+                <option value="">Unsorted</option>
+                {% for c in containers %}
+                <option value="{{ c['id'] }}" {% if item['container_id'] == c['id'] %}selected{% endif %}>{{ c['name'] }} ({{ c['kind'] }})</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button type="submit">Save changes</button>
+    </form>
+    <p style="margin-top:10px;"><a href="/edit/{{ item['id'] }}/version">Change version / printing</a></p>
+    <p><a href="/tracker">&larr; Back to card tracker</a></p>
+</body>
+</html>

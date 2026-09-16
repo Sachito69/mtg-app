@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>You already own this</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h1>You already have {{ available }}x {{ card_name }}</h1>
+    <p>Found in:</p>
+    <ul>
+        {% for s in sources %}
+        <li>{{ s['quantity'] }}x in {{ s['container_name'] or 'your Collection (unsorted)' }}</li>
+        {% endfor %}
+    </ul>
+    <p>Move real copies into this deck, or add a placeholder instead and leave your real copies where they are?</p>
+    <form method="POST" action="/add/confirm/move" style="display:inline;">
+        <input type="hidden" name="scryfall_id" value="{{ scryfall_id }}">
+        <input type="hidden" name="quantity" value="{{ quantity }}">
+        <input type="hidden" name="condition" value="{{ condition }}">
+        <input type="hidden" name="foil" value="{{ foil }}">
+        <input type="hidden" name="container_id" value="{{ container_id }}">
+        <button class="move-btn" type="submit">Move {{ available if available < quantity else quantity }} real cop{{ 'y' if quantity == 1 else 'ies' }} in</button>
+    </form>
+    <form method="POST" action="/add/confirm/missing" style="display:inline;">
+        <input type="hidden" name="scryfall_id" value="{{ scryfall_id }}">
+        <input type="hidden" name="quantity" value="{{ quantity }}">
+        <input type="hidden" name="condition" value="{{ condition }}">
+        <input type="hidden" name="foil" value="{{ foil }}">
+        <input type="hidden" name="container_id" value="{{ container_id }}">
+        <button class="missing-btn" type="submit">Add as missing instead</button>
+    </form>
+</body>
+</html>

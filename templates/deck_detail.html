@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ container['name'] }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+    <h1>{{ container['name'] }} <span class="kind-tag">(deck{% if container['format'] %} &middot; {{ container['format'] }}{% endif %})</span></h1>
+    <form class="deck-search-bar" method="POST" action="/add">
+        <input type="hidden" name="container_id" value="{{ container['id'] }}">
+        <div class="autocomplete-wrap" style="flex:1;">
+            <input type="text" name="card_name" id="deck-card-name-input" placeholder="Search a card to add to this deck..." required autocomplete="off">
+            <div id="deck-suggestions-box" class="suggestions-list"></div>
+        </div>
+        <button type="submit">Search</button>
+    </form>
+    <p class="deck-bulk-links">
+        <button type="button" class="link-btn" onclick="document.getElementById('bulk-add-modal').showModal()">Bulk add cards to this deck</button>
+        &middot;
+        <button type="button" class="link-btn" onclick="document.getElementById('bulk-edit-modal').showModal()">Bulk edit missing cards</button>
+    </p>
+
+    {% if legality %}
+    <div class="legality-box">
+        <h3>{{ container['format'] }} legality</h3>
+        <div class="{{ 'legal-ok' if legality['size_ok'] else 'legal-bad' }}">
+            Deck size: {{ legality['size_message'] }}
+        </div>
+        {% if legality['copy_violations'] %}
+        <div class="legal-bad">
+            Too many copies:
+            <ul>
+                {% for v in legality['copy_violations'] %}
+                <li>{{ v['name'] }}: {{ v['qty'] }}x (max {{ v['max_allowed'] }})</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% else %}
+        <div class="legal-ok">No copy-limit violations</div>
+        {% endif %}
+        {% if legality['rules']['sideboard_size'] > 0 %}
+        <div class="sideboard-note">Sideboard allowed: up to {{ legality['rules']['sideboard_size'] }} cards (not tracked separately yet -- this only checks your main deck list above).</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+
+    {% macro card_options(item_id) %}
+    <details class="options-menu card-options">
+        <summary>&#8942;</summary>
+        <div class="options-dropdown">
+            <a href="/edit/{{ item_id }}/version">Change version</a>
+            <form method="POST" action="/item/{{ item_id }}/increment">
+                <input type="hidden" name="next" value="/containers/{{ container['id'] }}">
+                <button type="submit">+1 copy</button>
+            </form>
+            <form method="POST" action="/item/{{ item_id }}/decrement">
+                <input type="hidden" name="next" value="/containers/{{ container['id'] }}">
+                <button type="submit">-1 copy</button>
+            </form>
+        </div>
+    </details>
+    {% endmacro %}
+
+    {% if grouped_cards %}
+    <div class="view-switcher">
+        <label>Show as:
+            <select id="view-mode" onchange="setDeckView(this.value, true)">
+                <option value="text" {% if deck_view == "text" %}selected{% endif %}>Text (qty, name, set)</option>
+                <option value="stacks" {% if deck_view == "stacks" %}selected{% endif %}>Visual stacks</option>
+                <option value="grid" {% if deck_view == "grid" %}selected{% endif %}>Visual grid</option>
+            </select>
+        </label>
+    </div>
+
+    <div id="view-text" class="deck-type-layout">
+        {% for group in grouped_cards %}
+        <section class="deck-type-section">
+        <h4 class="type-heading">{{ group['type_name'] }} ({{ group['count'] }})</h4>
+        <table>
+            <tr><th>Name</th><th>Set</th><th>Qty</th><th></th><th></th></tr>
+            {% for card in group['cards'] %}
+            <tr>
+                <td>{{ card['name'] }}</td>
+                <td>{{ card['set_name'] }}</td>
+                <td>{{ card['quantity'] }}</td>
+                <td>{% if card['is_missing'] %}<span class="missing-tag">MISSING</span>{% endif %}</td>
+                <td class="text-options-cell">{{ card_options(card['item_id']) }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        </section>
+        {% endfor %}
+    </div>
+
+    <div id="view-stacks" class="deck-type-layout" style="display:none;">
+        {% for group in grouped_cards %}
+        <section class="deck-type-section">
+        <h4 class="type-heading">{{ group['type_name'] }} ({{ group['count'] }})</h4>
+        <div class="fan">
+            {% for card in group['cards'] %}
+            <div class="fan-card {% if card['is_missing'] %}stack-missing{% endif %}" title="{{ card['name'] }}">
+                {% if card['image_url'] %}<img src="{{ card['image_url'] }}">{% endif %}
+                <span class="qty-badge">{{ card['quantity'] }}</span>
+                {{ card_options(card['item_id']) }}
+                {% if card['is_missing'] %}<span class="missing-tag fan-missing-tag">MISSING</span>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        </section>
+        {% endfor %}
+    </div>
+
+    <div id="view-grid" class="deck-type-layout" style="display:none;">
+        {% for group in grouped_cards %}
+        <section class="deck-type-section">
+        <h4 class="type-heading">{{ group['type_name'] }} ({{ group['count'] }})</h4>
+        <div class="grid-wrap">
+            {% for card in group['cards'] %}
+            <div class="grid-cell {% if card['is_missing'] %}stack-missing{% endif %}">
+                <div class="stack-thumb">
+                    {% if card['image_url'] %}<img src="{{ card['image_url'] }}">{% endif %}
+                    <span class="qty-badge">{{ card['quantity'] }}</span>
+                    {{ card_options(card['item_id']) }}
+                </div>
+                <div class="grid-name">{{ card['name'] }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        </section>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">Nothing in this deck yet. Add a card above to get started.</p>
+    {% endif %}
+
+    <p style="margin-top:20px;"><a href="/">&larr; Back to containers</a></p>
+
+    <dialog id="bulk-add-modal" class="deck-modal">
+        <h3>Bulk add cards to "{{ container['name'] }}"</h3>
+        <p class="modal-hint">Format: quantity, card name, set code in parentheses, collector number. One per line.</p>
+        <textarea id="bulk-add-textarea" placeholder="1 Reckless Impulse (PLST) VOW-174&#10;1 Skullclamp (MSC) 210&#10;1 Sol Ring (MSC) 213"></textarea>
+        <div id="bulk-add-progress" class="modal-progress"></div>
+        <div id="bulk-add-results" class="modal-results"></div>
+        <div class="modal-actions">
+            <button type="button" onclick="document.getElementById('bulk-add-modal').close()">Close</button>
+            <button type="button" class="primary" id="bulk-add-submit" onclick="runBulkAdd()">Add all</button>
+        </div>
+    </dialog>
+
+    <dialog id="bulk-edit-modal" class="deck-modal">
+        <h3>Bulk edit missing cards: "{{ container['name'] }}"</h3>
+        <p class="modal-hint">This only edits this deck's MISSING (wishlist) cards -- real cards you already own here are never touched. Edit a quantity, delete a line to remove that card, or add "qty Card Name" for something new.</p>
+        <textarea id="bulk-edit-textarea">{{ missing_text }}</textarea>
+        <div id="bulk-edit-results" class="modal-results"></div>
+        <div class="modal-actions">
+            <button type="button" onclick="document.getElementById('bulk-edit-modal').close()">Close</button>
+            <button type="button" class="primary" id="bulk-edit-submit" onclick="runBulkEdit()">Apply changes</button>
+        </div>
+    </dialog>
+
+<script>
+async function runBulkAdd() {
+    const textarea = document.getElementById('bulk-add-textarea');
+    const lines = textarea.value.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const progressDiv = document.getElementById('bulk-add-progress');
+    const resultsDiv = document.getElementById('bulk-add-results');
+    const submitBtn = document.getElementById('bulk-add-submit');
+    resultsDiv.innerHTML = '';
+    submitBtn.disabled = true;
+
+    for (let i = 0; i < lines.length; i++) {
+        progressDiv.textContent = 'Adding ' + (i + 1) + ' of ' + lines.length + '...';
+        let result;
+        try {
+            const resp = await fetch('/bulk-add/line', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({line: lines[i], container_id: '{{ container["id"] }}'})
+            });
+            result = await resp.json();
+        } catch (err) {
+            result = {ok: false, line: lines[i], message: 'Something went wrong talking to the server.'};
+        }
+        const row = document.createElement('div');
+        row.className = 'modal-result-row ' + (result.ok ? 'ok' : 'fail');
+        row.textContent = result.message;
+        resultsDiv.appendChild(row);
+    }
+    progressDiv.textContent = 'Done -- reopen this window or refresh the page to see the updated deck.';
+    submitBtn.disabled = false;
+}
+
+async function runBulkEdit() {
+    const textarea = document.getElementById('bulk-edit-textarea');
+    const resultsDiv = document.getElementById('bulk-edit-results');
+    const submitBtn = document.getElementById('bulk-edit-submit');
+    resultsDiv.innerHTML = '';
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Applying...';
+
+    try {
+        const resp = await fetch('/containers/{{ container["id"] }}/bulk-edit/apply', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({card_list: textarea.value})
+        });
+        const data = await resp.json();
+        data.results.forEach(function(r) {
+            const row = document.createElement('div');
+            row.className = 'modal-result-row ' + (r.ok ? 'ok' : 'fail');
+            row.textContent = r.message;
+            resultsDiv.appendChild(row);
+        });
+        if (data.results.length === 0) {
+            const row = document.createElement('div');
+            row.className = 'modal-result-row ok';
+            row.textContent = 'No changes.';
+            resultsDiv.appendChild(row);
+        }
+    } catch (err) {
+        resultsDiv.textContent = 'Something went wrong talking to the server.';
+    }
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Apply changes';
+}
+</script>
+
+<script>
+function setDeckView(mode, savePreference) {
+    const textView = document.getElementById('view-text');
+    const stackView = document.getElementById('view-stacks');
+    const gridView = document.getElementById('view-grid');
+
+    textView.style.display = (mode === 'text') ? 'grid' : 'none';
+    stackView.style.display = (mode === 'stacks') ? 'grid' : 'none';
+    gridView.style.display = (mode === 'grid') ? 'grid' : 'none';
+
+    if (savePreference) {
+        fetch('/settings/deck-view', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({deck_view: mode})
+        }).catch(function() {});
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const selector = document.getElementById('view-mode');
+    if (selector) setDeckView(selector.value, false);
+});
+
+(function() {
+    const input = document.getElementById('deck-card-name-input');
+    const box = document.getElementById('deck-suggestions-box');
+    let debounceTimer;
+    input.addEventListener('input', function() {
+        clearTimeout(debounceTimer);
+        const q = input.value.trim();
+        if (q.length < 2) { box.innerHTML = ''; return; }
+        debounceTimer = setTimeout(async function() {
+            try {
+                const resp = await fetch('/card-suggestions?q=' + encodeURIComponent(q));
+                const names = await resp.json();
+                box.innerHTML = '';
+                names.forEach(function(name) {
+                    const item = document.createElement('div');
+                    item.className = 'suggestion-item';
+                    item.textContent = name;
+                    item.addEventListener('click', function() {
+                        input.value = name;
+                        box.innerHTML = '';
+                    });
+                    box.appendChild(item);
+                });
+            } catch (err) { box.innerHTML = ''; }
+        }, 200);
+    });
+    document.addEventListener('click', function(e) {
+        if (e.target !== input) box.innerHTML = '';
+    });
+})();
+</script>
+</body>
+</html>

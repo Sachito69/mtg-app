@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Collection</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+
+<div class="collection-heading">
+    <div>
+        <h1>My Collection</h1>
+        <p class="hint">Organize your cards into decks, binders, and boxes.</p>
+    </div>
+    <button type="button" class="primary collection-add-btn"
+            onclick="document.getElementById('create-container-modal').showModal()">+ Add</button>
+</div>
+
+<div class="collection-kind-filter">
+    <a href="/" class="{% if not active_kind %}active{% endif %}">All</a>
+    <a href="/?kind=deck" class="{% if active_kind == 'deck' %}active{% endif %}">Decks</a>
+    <a href="/?kind=binder" class="{% if active_kind == 'binder' %}active{% endif %}">Binders</a>
+    <a href="/?kind=box" class="{% if active_kind == 'box' %}active{% endif %}">Boxes</a>
+</div>
+
+{% if containers %}
+<div class="collection-list">
+{% for c in containers %}
+<div class="item">
+    <div class="icon icon-{{ c['kind'] }}">
+        {% if c['kind'] == 'deck' %}<div class="cb"></div><div class="cb"></div><div class="cb"></div>{% endif %}
+    </div>
+    <div class="item-info">
+        <a href="/containers/{{ c['id'] }}">{{ c['name'] }}</a>
+        <span class="kind-tag">{{ c['kind']|title }}{% if c['format'] %} &middot; {{ c['format'] }}{% endif %} &mdash; {{ c['card_count'] }} cards</span>
+    </div>
+    <details class="options-menu">
+        <summary>&#8942;</summary>
+        <div class="options-dropdown">
+            <form method="POST" action="/containers/{{ c['id'] }}/duplicate">
+                <button type="submit">Duplicate</button>
+            </form>
+            <form method="POST" action="/containers/{{ c['id'] }}/delete"
+                  onsubmit="return confirm('Delete '{{ c['name'] }}'? Real cards inside will move to Unsorted, not be deleted.');">
+                <button type="submit" class="danger">Delete</button>
+            </form>
+        </div>
+    </details>
+</div>
+{% endfor %}
+</div>
+{% else %}
+<p class="empty">
+{% if active_kind %}
+You don't have any {{ active_kind }}s yet.
+{% else %}
+You haven't made any binders, boxes, or decks yet.
+{% endif %}
+</p>
+{% endif %}
+
+<dialog id="create-container-modal" class="deck-modal collection-create-modal">
+    <form method="POST" action="/">
+        <h2>Add to Collection</h2>
+        <p class="modal-hint">Create a deck, binder, or storage box.</p>
+
+        <label>Name
+            <input type="text" name="name" placeholder="e.g. Modern Staples" required>
+        </label>
+
+        <label>Type
+            <select name="kind" id="kind-select"
+                    onchange="document.getElementById('format-field').style.display = this.value === 'deck' ? 'block' : 'none';">
+                <option value="deck">Deck</option>
+                <option value="binder">Binder</option>
+                <option value="box">Box</option>
+            </select>
+        </label>
+
+        <label id="format-field">Format (decks only)
+            <select name="format">
+                {% for f in formats %}
+                <option value="{{ f }}">{{ f }}</option>
+                {% endfor %}
+                <option value="Casual">Casual / Other</option>
+            </select>
+        </label>
+
+        <div class="modal-actions">
+            <button type="button" class="secondary"
+                    onclick="document.getElementById('create-container-modal').close()">Cancel</button>
+            <button type="submit" class="primary">Create</button>
+        </div>
+    </form>
+</dialog>
+
+<script>
+const createModal = document.getElementById('create-container-modal');
+createModal.addEventListener('click', function (event) {
+    if (event.target === createModal) createModal.close();
+});
+</script>
+</body>
+</html>

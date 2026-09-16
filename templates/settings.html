@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Settings</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+    <h1>Settings</h1>
+    <form method="POST">
+        <div class="setting-row">
+            <label>
+                <input type="checkbox" name="auto_pick_version" {% if auto_pick_version %}checked{% endif %}>
+                <div>
+                    <div class="setting-title">Automatically pick a printing when searching</div>
+                    <div class="setting-desc">When you add a card by name, skip straight to the default/most recent printing instead of showing every printing to choose from. You can still browse all printings from that screen if the auto-picked one isn't right. Turn this off to always see the full printing picker.</div>
+                </div>
+            </label>
+        </div>
+        <div class="setting-row">
+            <label for="preferred_deck_view">
+                <div>
+                    <div class="setting-title">Preferred deck "Show as"</div>
+                    <div class="setting-desc">Choose the view decks should use by default. Changing the Show as dropdown on a deck also saves this preference.</div>
+                    <select id="preferred_deck_view" name="preferred_deck_view">
+                        <option value="text" {% if preferred_deck_view == "text" %}selected{% endif %}>Text</option>
+                        <option value="stacks" {% if preferred_deck_view == "stacks" %}selected{% endif %}>Visual stacks</option>
+                        <option value="grid" {% if preferred_deck_view == "grid" %}selected{% endif %}>Visual grid</option>
+                    </select>
+                </div>
+            </label>
+        </div>
+        <button type="submit">Save</button>
+    </form>
+    {% if saved %}<p class="saved-note">Saved.</p>{% endif %}
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choose Friend</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a><a href="/tracker">Card Tracker</a><a href="/community">Community</a>
+</div>
+<a href="/tracker" class="back-link">&larr; Card Tracker</a>
+<h1>Who do you want to {{ transaction_type }} this card to?</h1>
+<p class="hint">{{ card_name }}</p>
+<div class="community-card">
+{% for friend in friends %}
+<div class="friend-action-row">
+<div><strong>@{{ friend.username or "user" }}</strong><div class="muted">{{ friend.email }}</div></div>
+<a class="button-link primary" href="/community/trade/{{ friend.user_id }}/{{ transaction_type }}?item={{ item_id }}">Choose</a>
+</div>
+{% else %}
+<p class="empty">Add a friend in Community first.</p>
+{% endfor %}
+</div>
+</body>
+</html>

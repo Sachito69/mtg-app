@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Choose a printing</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+    <h1>Printings of "{{ card_name }}"</h1>
+    {% if printings %}
+        {% for p in printings %}
+        <div class="printing">
+            {% if p['image_uris'] %}<img src="{{ p['image_uris']['small'] }}">{% endif %}
+            <div class="printing-info">
+                <div><b>{{ p['set_name'] }}</b> ({{ p['set'] }}) &mdash; {{ p['released_at'] }}</div>
+                <form class="inline" method="POST" action="/add/confirm">
+                    <input type="hidden" name="scryfall_id" value="{{ p['id'] }}">
+                    <input type="hidden" name="container_id" value="{{ container_id or '' }}">
+                    Qty <input type="number" name="quantity" value="1" min="1">
+                    <select name="condition">
+                        {% for c in ['NM', 'LP', 'MP', 'HP', 'DMG'] %}
+                        <option value="{{ c }}">{{ c }}</option>
+                        {% endfor %}
+                    </select>
+                    <label><input type="checkbox" name="foil" style="width:auto;"> Foil</label>
+                    <button type="submit">Add this version</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p>No printings found.</p>
+    {% endif %}
+    <p><a href="/add">&larr; Search a different card</a></p>
+</body>
+</html>

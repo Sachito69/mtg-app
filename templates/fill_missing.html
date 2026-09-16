@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fill a missing card?</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="nav-bar">
+<a href="/">Collection</a>
+<a href="/tracker">Card Tracker</a>
+<a href="/community">Community</a>
+<details class="profile-menu">
+<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
+<div class="profile-dropdown">
+<div class="muted">Signed in as</div>
+<div class="profile-username">@{{ current_username or "user" }}</div>
+<div class="profile-email">{{ session.get("email", "User") }}</div>
+<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
+<a href="/profile">Profile</a>
+<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
+<a href="/settings">Settings</a>
+<a class="logout-link" href="/logout">Log out</a>
+</div>
+</details>
+</div>
+    <h1>You added {{ quantity }}x {{ card_name }}</h1>
+    <p>This card is marked MISSING in:</p>
+    {% for opt in fill_options %}
+    <div class="match">
+        <b>{{ opt['deck_name'] }}</b> needs {{ opt['missing_qty'] }} more
+        <form class="inline" method="POST" action="/fill-missing">
+            <input type="hidden" name="source_item_id" value="{{ source_item_id }}">
+            <input type="hidden" name="missing_item_id" value="{{ opt['missing_item_id'] }}">
+            <input type="hidden" name="fallback_url" value="{{ fallback_url }}">
+            <input type="number" name="quantity" value="{{ opt['fillable'] }}" min="1" max="{{ opt['fillable'] }}">
+            <button type="submit">Fill this deck</button>
+        </form>
+    </div>
+    {% endfor %}
+    <p style="margin-top:16px;"><a href="{{ fallback_url }}">Skip -- just keep it in my collection</a></p>
+</body>
+</html>
