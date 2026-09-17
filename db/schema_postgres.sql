@@ -1,24 +1,30 @@
--- Postgres/Supabase version of the schema. This is the DEFINITIVE,
--- up-to-date version -- it includes everything that used to be added
--- via separate migrations in the SQLite version (container_id,
--- is_missing), since we're starting fresh here.
+-- Postgres/Supabase schema -- multi-user version.
+--
+-- Every user's data is scoped by a user_id column that points at
+-- Supabase's own auth.users table (created automatically by Supabase
+-- Auth -- you never create or manage that table yourself).
+--
+-- If you already ran an earlier version of this file against your
+-- Supabase project (without user_id / friendships), don't re-run this
+-- one -- run migration_add_users.sql instead, which safely adds just
+-- what's missing without touching your existing data.
 
--- card_catalog: Scryfall's card data, shared/reference data (not personal collection)
--- One row per unique PRINTING of a card (e.g. "Lightning Bolt" has many printings
--- across different sets -- each gets its own row here).
+-- card_catalog: Scryfall's card data. Shared/reference data, the same
+-- for every user -- NOT scoped by user_id. One row per unique PRINTING
+-- of a card (e.g. "Lightning Bolt" has many printings across sets).
 
 CREATE TABLE IF NOT EXISTS card_catalog (
-    id            TEXT PRIMARY KEY,   -- Scryfall's unique id for this specific printing
-    oracle_id     TEXT NOT NULL,      -- Identifies the CARD itself, shared across all its printings
+    id            TEXT PRIMARY KEY,
+    oracle_id     TEXT NOT NULL,
     name          TEXT NOT NULL,
     set_code      TEXT,
     set_name      TEXT,
     image_url     TEXT,
-    colors        TEXT,               -- stored as JSON text, e.g. ["R"]
+    colors        TEXT,
     type_line     TEXT,
     mana_cost     TEXT,
     cmc           REAL,
-    legalities    TEXT,               -- stored as JSON text, e.g. {"standard":"legal",...}
+    legalities    TEXT,
     updated_at    TEXT
 );
 
@@ -27,43 +33,44 @@ CREATE INDEX IF NOT EXISTS idx_card_catalog_oracle_id ON card_catalog(oracle_id)
 CREATE INDEX IF NOT EXISTS idx_card_catalog_set_code ON card_catalog(set_code);
 
 
--- containers: binders, boxes, and decks all use this same table, told
--- apart by "kind". Format only applies to decks (Standard, Modern, etc.)
--- Created BEFORE collection_items since collection_items references it.
+-- containers: binders, boxes, and decks. Each one belongs to exactly
+-- one user.
 
 CREATE TABLE IF NOT EXISTS containers (
     id            SERIAL PRIMARY KEY,
+    user_id       UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     name          TEXT NOT NULL,
     kind          TEXT NOT NULL,      -- 'binder' | 'box' | 'deck'
-    format        TEXT,               -- only used when kind = 'deck'
+    format        TEXT,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_containers_user_id ON containers(user_id);
 
--- collection_items: YOUR personal collection. This is separate from
--- card_catalog because card_catalog is just facts about the card
--- (same for everyone), while this table is "how many of this I own,
--- and in what condition."
+
+-- collection_items: one user's personal collection. user_id is stored
+-- directly here (not just inferred through container_id) so "Unsorted"
+-- items (container_id IS NULL) are still clearly owned by someone.
 
 CREATE TABLE IF NOT EXISTS collection_items (
     id            SERIAL PRIMARY KEY,
+    user_id       UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     card_id       TEXT NOT NULL REFERENCES card_catalog(id),
     quantity      INTEGER NOT NULL DEFAULT 1,
-    condition     TEXT DEFAULT 'NM',  -- NM = Near Mint, LP = Lightly Played, etc.
-    foil          INTEGER DEFAULT 0,  -- 0 = not foil, 1 = foil
+    condition     TEXT DEFAULT 'NM',
+    foil          INTEGER DEFAULT 0,
     added_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    container_id  INTEGER REFERENCES containers(id),  -- NULL = unsorted
-    is_missing    INTEGER DEFAULT 0   -- 0 = real card you own, 1 = deck wishlist placeholder
+    container_id  INTEGER REFERENCES containers(id),
+    is_missing    INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_collection_items_card_id ON collection_items(card_id);
 CREATE INDEX IF NOT EXISTS idx_collection_items_container_id ON collection_items(container_id);
+CREATE INDEX IF NOT EXISTS idx_collection_items_user_id ON collection_items(user_id);
 
 
--- loans: tracking who has borrowed a real card. This sits ON TOP of
--- collection_items -- loaning a card doesn't move it out of its binder/
--- box/deck, it just marks it as currently out with someone.
--- returned_at IS NULL means the loan is still active.
+-- loans: who has borrowed a real card. Scoped by ownership of the card
+-- being loaned (via collection_item_id), so no user_id column needed here.
 
 CREATE TABLE IF NOT EXISTS loans (
     id                  SERIAL PRIMARY KEY,
@@ -75,11 +82,29 @@ CREATE TABLE IF NOT EXISTS loans (
 );
 
 
--- settings: simple app-wide preferences (key/value). Currently just
--- controls whether searching a card auto-picks its default printing
--- or shows the full "choose a printing" picker.
+-- settings: per-user app preferences (key/value).
 
 CREATE TABLE IF NOT EXISTS settings (
-    key     TEXT PRIMARY KEY,
-    value   TEXT
+    user_id   UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    key       TEXT NOT NULL,
+    value     TEXT,
+    PRIMARY KEY (user_id, key)
 );
+
+
+-- friendships: a connection request between two users. 'pending' until
+-- the addressee accepts it, then 'accepted'. Deleting the row covers
+-- declining, cancelling, and un-friending -- all the same operation.
+
+CREATE TABLE IF NOT EXISTS friendships (
+    id             SERIAL PRIMARY KEY,
+    requester_id   UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    addressee_id   UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    status         TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'accepted'
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (requester_id, addressee_id),
+    CHECK (requester_id != addressee_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_friendships_requester ON friendships(requester_id);
+CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships(addressee_id);

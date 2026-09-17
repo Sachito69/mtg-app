@@ -1,7 +1,10 @@
 from flask import Blueprint
 from app_core import *
 from services.auth_service import require_db as _sb, current_user_id as _uid
-from services.collection_service import card_map as _card_map
+from services.collection_service import (
+    card_map as _card_map,
+    container_map,
+)
 
 tracker_bp = Blueprint("tracker", __name__)
 

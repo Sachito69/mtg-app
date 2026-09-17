@@ -1,8 +1,24 @@
 from flask import Blueprint
 from app_core import *
 from services.auth_service import require_db as _sb, current_user_id as _uid
+from services.collection_service import (
+    card_map as _card_map,
+    container_map as _container_map_service,
+    get_container as _get_container_service,
+    get_item as _get_item_service,
+)
 
 collection_bp = Blueprint("collection", __name__)
+
+def _container_map(db):
+    return _container_map_service(db, _uid())
+
+def _get_container(db, container_id):
+    return _get_container_service(db, _uid(), container_id)
+
+def _get_item(db, item_id):
+    return _get_item_service(db, _uid(), item_id)
+
 
 @collection_bp.route("/edit/<int:item_id>", methods=["GET", "POST"])
 def edit_item(item_id):
