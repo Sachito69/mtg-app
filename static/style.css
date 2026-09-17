@@ -100,7 +100,7 @@ button.link-btn {
     font-size: 12px; padding: 0; text-decoration: underline; font-family: inherit;
 }
 
-input[type=text], input[type=number], input[type=password], input[type=email],
+input[type=text], input[type=number], input[type=password], input[type=email], input[type=username],
 select, textarea {
     width: 100%;
     padding: 7px 9px;
