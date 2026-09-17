@@ -25,7 +25,7 @@ def show_collection():
     )
     items = item_result.data or []
     cards = _card_map(db, [item["card_id"] for item in items])
-    containers = _container_map(db)
+    containers = container_map(db, uid)
 
     lender_ids = list({
         item.get("loaned_from_user_id")

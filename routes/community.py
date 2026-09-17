@@ -136,7 +136,7 @@ def community_trade(friend_id, transaction_type):
     ).data or []
 
     cards = _card_map(db, [r.get("card_id") for r in item_rows])
-    containers = _container_map(db)
+    containers = container_map(db, uid)
     items = []
     for row in item_rows:
         card = cards.get(row.get("card_id"), {})
