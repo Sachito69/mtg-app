@@ -28,12 +28,12 @@
 <div class="trade-page-header">
 <div>
 <a href="/community" class="back-link">&larr; Community</a>
-<h1>{{ transaction_type|title }} cards to {{ friend.email }}</h1>
+<h1>{{ transaction_type|title }} cards to {{ custom_contact.name if custom_contact else friend.email }}</h1>
 <p class="hint">Choose cards from your collection on the left. Your {{ transaction_type }} cart is on the right.</p>
 </div>
 </div>
 
-<form method="post" action="/community/trade/{{ friend.user_id }}/{{ transaction_type }}/send" id="trade-form">
+<form method="post" action="{% if custom_contact %}/community/custom/{{ custom_contact.id }}/{{ transaction_type }}/send{% else %}/community/trade/{{ friend.user_id }}/{{ transaction_type }}/send{% endif %}" id="trade-form">
 <div class="trade-split">
 <section class="trade-collection">
 <div class="trade-pane-heading">
@@ -84,7 +84,7 @@
 
 <div id="trade-hidden-inputs"></div>
 <button type="submit" class="primary trade-send-button" id="send-trade" disabled>
-Send {{ transaction_type|title }} Offer
+{% if custom_contact %}Confirm {{ transaction_type|title }}{% else %}Send {{ transaction_type|title }} Offer{% endif %}
 </button>
 </aside>
 </div>

@@ -1,10 +1,7 @@
 from flask import Blueprint
 from app_core import *
 from services.auth_service import require_db as _sb, current_user_id as _uid
-from services.collection_service import (
-    card_map as _card_map,
-    container_map,
-)
+from services.collection_service import card_map as _card_map
 
 tracker_bp = Blueprint("tracker", __name__)
 
@@ -29,6 +26,7 @@ def show_collection():
     items = item_result.data or []
     cards = _card_map(db, [item["card_id"] for item in items])
     containers = container_map(db, _uid())
+
     lender_ids = list({
         item.get("loaned_from_user_id")
         for item in items if item.get("loaned_from_user_id")
@@ -43,7 +41,7 @@ def show_collection():
     # Active outgoing loans are rendered as separate tracker tiles.
     sent_loans = (
         db.table("card_transactions")
-        .select("id,card_id,friend_id,quantity,loan_condition,loan_foil")
+        .select("id,card_id,friend_id,current_borrower_id,contact_id,quantity,loan_condition,loan_foil,return_status")
         .eq("owner_id", uid)
         .eq("transaction_type", "loan")
         .eq("status", "accepted")
@@ -51,7 +49,7 @@ def show_collection():
         .execute()
     ).data or []
 
-    borrower_ids = list({loan.get("friend_id") for loan in sent_loans if loan.get("friend_id")})
+    borrower_ids = list({loan.get("current_borrower_id") or loan.get("friend_id") for loan in sent_loans if loan.get("current_borrower_id") or loan.get("friend_id")})
     borrower_profiles = {}
     if borrower_ids:
         borrower_profiles = {
@@ -155,7 +153,12 @@ def show_collection():
         if cmc_filter != "all" and (cmc is None or float(cmc) != int(cmc_filter)):
             continue
 
-        borrower = borrower_profiles.get(loan.get("friend_id"), {})
+        borrower_id = loan.get("current_borrower_id") or loan.get("friend_id")
+        borrower = borrower_profiles.get(borrower_id, {})
+        contact = {}
+        if loan.get("contact_id"):
+            contact_rows = db.table("contacts").select("name").eq("id", loan.get("contact_id")).eq("user_id", uid).limit(1).execute().data or []
+            contact = contact_rows[0] if contact_rows else {}
         rows.append({
             "id": None,
             "name": name,
@@ -178,7 +181,9 @@ def show_collection():
                 "transaction_id": loan.get("id"),
                 "quantity": loan.get("quantity") or 1,
                 "username": borrower.get("username"),
-                "email": borrower.get("email", "another user"),
+                "email": contact.get("name") or borrower.get("email", "another user"),
+                "is_contact": bool(loan.get("contact_id")),
+                "return_status": loan.get("return_status"),
             }],
         })
 

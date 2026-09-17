@@ -97,6 +97,11 @@ def inject_profile_context():
             db.table("card_transactions").select("id")
             .eq("friend_id", uid).eq("status", "pending").execute()
         ).data or []
+        return_requests = (
+            db.table("card_transactions").select("id")
+            .eq("owner_id", uid).eq("transaction_type", "loan")
+            .eq("return_status", "requested").is_("returned_at", "null").execute()
+        ).data or []
 
         outgoing = (
             db.table("card_transactions").select("id")
@@ -110,7 +115,7 @@ def inject_profile_context():
         username = profile_rows[0].get("username") if profile_rows else None
 
         return {
-            "notification_count": friend_count + len(incoming),
+            "notification_count": friend_count + len(incoming) + len(return_requests),
             "pending_offer_count": len(outgoing),
             "current_username": username,
         }

@@ -1,67 +1,7 @@
-<!doctype html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Community</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<div class="nav-bar">
-<a href="/">Collection</a>
-<a href="/tracker">Card Tracker</a>
-<a href="/community">Community</a>
-<details class="profile-menu">
-<summary>Profile ▾{% if notification_count %} <span class="notification-dot">{{ notification_count }}</span>{% endif %}</summary>
-<div class="profile-dropdown">
-<div class="muted">Signed in as</div>
-<div class="profile-username">@{{ current_username or "user" }}</div>
-<div class="profile-email">{{ session.get("email","User") }}</div>
-<a href="/notifications">Notifications{% if notification_count %} <span class="notification-badge">{{ notification_count }}</span>{% endif %}</a>
-<a href="/profile">Profile</a>
-<a href="/pending-offers">Pending Loans / Sales{% if pending_offer_count %} <span class="notification-badge">{{ pending_offer_count }}</span>{% endif %}</a>
-<a href="/settings">Settings</a>
-<a class="logout-link" href="/logout">Log out</a>
-</div>
-</details>
-</div>
-
-<div class="community-header">
-<h1>Community</h1>
-<p>Add friends, then loan or sell cards directly to them.</p>
-</div>
-
-{% if message %}<div class="alert">{{ message }}</div>{% endif %}
-
-<div class="community-friends-layout">
-<section class="community-card add-friend-card">
-<h2>Add a friend</h2>
-<form method="post" action="/community/add-friend">
-<label>Friend's email</label>
-<input type="email" name="email" placeholder="friend@example.com" required>
-<button type="submit">Send friend request</button>
-</form>
-<p class="hint">Your friend must already have an account. They can accept the request from Notifications.</p>
-</section>
-
-<section class="community-card friends-wide">
-<h2>Your friends</h2>
-{% if friends %}
-{% for f in friends %}
-<div class="friend-action-row">
-<div class="friend-identity">
-<strong>@{{ f.username or "user" }}</strong>
-<div class="muted">{{ f.email }}</div>
-</div>
-<div class="friend-card-actions">
-<a class="button-link secondary" href="/community/trade/{{ f.user_id }}/loan">Loan</a>
-<a class="button-link primary" href="/community/trade/{{ f.user_id }}/sale">Sell</a>
-</div>
-</div>
-{% endfor %}
-{% else %}
-<p class="empty">You haven't added any friends yet.</p>
-{% endif %}
-</section>
-</div>
-</body>
-</html>
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Community</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<div class="nav-bar"><a href="/">Collection</a><a href="/tracker">Card Tracker</a><a href="/community">Community</a></div><main class="page-shell">
+<h1>Community</h1><p class="hint">Friends and private mini-profiles for people outside the app.</p>
+<div class="community-friends-layout"><section class="community-card"><h2>Add a friend</h2><form method="post" action="/community/add-friend"><label>Email<input type="email" name="email" required></label><button>Send friend request</button></form></section>
+<section class="community-card friends-wide"><h2>Your friends</h2>{% for f in friends %}<div class="friend-action-row"><div><strong>@{{ f.username or "user" }}</strong><div class="muted">{{ f.email }}</div></div><div class="friend-card-actions"><a class="button-link secondary" href="/community/trade/{{ f.user_id }}/loan">Loan</a><a class="button-link primary" href="/community/trade/{{ f.user_id }}/sale">Sell</a></div></div>{% else %}<p class="empty">No friends yet.</p>{% endfor %}</section>
+<section class="community-card"><h2>Add non-user</h2><form method="post" action="/community/contacts"><label>Name<input name="name" required></label><label>Phone (optional)<input name="phone"></label><label>Notes (optional)<input name="notes"></label><button>Add person</button></form></section>
+<section class="community-card friends-wide"><h2>Non-user contacts</h2>{% for c in contacts %}<div class="friend-action-row"><div><strong>{{ c.name }}</strong><div class="muted">{{ c.phone or "" }}{% if c.notes %} · {{ c.notes }}{% endif %}</div></div><div class="friend-card-actions"><a class="button-link secondary" href="/community/custom/{{ c.id }}/loan">Loan</a><a class="button-link primary" href="/community/custom/{{ c.id }}/sale">Sell</a><form method="post" action="/community/contacts/{{ c.id }}/delete"><button class="danger">Delete</button></form></div></div>{% else %}<p class="empty">No non-user contacts yet.</p>{% endfor %}</section></div></main></body></html>

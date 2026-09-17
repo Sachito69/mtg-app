@@ -87,9 +87,9 @@
                 <summary title="Card options">&#8942;</summary>
                 <div class="options-dropdown">
                     {% if card['loan_transaction_id'] %}
-                    <form method="POST" action="/community/return-borrowed/{{ card['loan_transaction_id'] }}"
-                          onsubmit="return confirm('Return this card to {{ card['loaned_from_email'] }}?');">
-                        <button type="submit">Return to lender</button>
+                    <a href="/community/trade-picker/{{ card['id'] }}/loan">Pass to mutual friend</a>
+                    <form method="POST" action="/community/return-borrowed/{{ card['loan_transaction_id'] }}">
+                        <button type="submit">Request Return</button>
                     </form>
                     {% else %}
                     <a href="/edit/{{ card['id'] }}">Edit</a>
@@ -117,7 +117,9 @@
                 </div>
                 {% if card.get('is_lent_out') %}
                     {% for loan in card['lent_to'] %}
-                    <div class="lent-tag">Lent out: {{ loan.quantity }}x to @{{ loan.username or loan.email }}</div>
+                    <div class="lent-tag">Lent out: {{ loan.quantity }}x to {% if loan.is_contact %}{{ loan.email }} (non-user){% else %}@{{ loan.username or loan.email }}{% endif %}</div>
+                    {% if loan.is_contact %}<form method="post" action="/community/nonuser-return/{{ loan.transaction_id }}"><button>Mark Returned</button></form>
+                    {% elif loan.return_status == "requested" %}<div class="muted">Return waiting for your approval in Notifications.</div>{% endif %}
                     {% endfor %}
                 {% else %}
                 <div class="location-tag">
