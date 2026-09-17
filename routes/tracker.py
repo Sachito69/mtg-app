@@ -1,7 +1,10 @@
 from flask import Blueprint
 from app_core import *
 from services.auth_service import require_db as _sb, current_user_id as _uid
-from services.collection_service import card_map as _card_map
+from services.collection_service import (
+    card_map as _card_map,
+    container_map,
+)
 
 tracker_bp = Blueprint("tracker", __name__)
 
@@ -25,8 +28,7 @@ def show_collection():
     )
     items = item_result.data or []
     cards = _card_map(db, [item["card_id"] for item in items])
-    containers = _container_map(db)
-
+    containers = container_map(db, _uid())
     lender_ids = list({
         item.get("loaned_from_user_id")
         for item in items if item.get("loaned_from_user_id")
