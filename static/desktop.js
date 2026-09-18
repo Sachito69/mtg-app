@@ -1,0 +1,53 @@
+let zTop=100, dragItem=null, dragFrom=null, dragContainer=null;
+const windowsState={};
+const taskbar=document.querySelector('#taskbar');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg){const t=document.querySelector('#desktop-toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2400)}
+function taskbarRender(){taskbar.innerHTML='';Object.values(windowsState).forEach(s=>{const b=document.createElement('button');b.className='task-chip';b.textContent=s.name;b.onclick=()=>front(s.key);taskbar.appendChild(b)})}
+function front(key){const s=windowsState[key],el=document.querySelector('#win-'+CSS.escape(key));if(!s||!el)return;s.z=++zTop;el.style.zIndex=s.z}
+function closeWin(key){document.querySelector('#win-'+CSS.escape(key))?.remove();delete windowsState[key];taskbarRender()}
+function makeDraggable(el,s){const h=el.querySelector('.window-titlebar');let down=false,ox=0,oy=0;h.onmousedown=e=>{if(e.target.closest('button,a,input,select'))return;down=true;const r=el.getBoundingClientRect();ox=e.clientX-r.left;oy=e.clientY-r.top;e.preventDefault()};window.addEventListener('mousemove',e=>{if(!down)return;s.x=Math.max(0,e.clientX-ox);s.y=Math.max(48,e.clientY-oy);el.style.left=s.x+'px';el.style.top=s.y+'px'});window.addEventListener('mouseup',()=>down=false)}
+function shellWindow(key,name,cls=''){if(windowsState[key]){front(key);return document.querySelector('#win-'+CSS.escape(key))}
+ const n=Object.keys(windowsState).length,s={key,name,x:55+n*28,y:70+n*24,z:++zTop};windowsState[key]=s;
+ const el=document.createElement('section');el.className='window '+cls;el.id='win-'+key;el.style.left=s.x+'px';el.style.top=s.y+'px';el.style.zIndex=s.z;
+ el.innerHTML=`<div class="window-titlebar"><span>${esc(name)}</span><div class="window-controls"><button data-min>—</button><button data-close>×</button></div></div><div class="window-body"><div class="loading">Loading…</div></div>`;
+ document.body.appendChild(el);el.onmousedown=()=>front(key);el.querySelector('[data-close]').onclick=()=>closeWin(key);el.querySelector('[data-min]').onclick=()=>el.classList.toggle('minimized');makeDraggable(el,s);taskbarRender();return el}
+function openAppWindow(name,url){const key='app-'+name,el=shellWindow(key,name[0].toUpperCase()+name.slice(1),'app-window');if(el.dataset.loaded)return;el.dataset.loaded='1';el.querySelector('.window-body').innerHTML=`<iframe class="app-frame" src="${esc(url)}"></iframe>`}
+function primaryColor(colors){if(!colors||!colors.length)return'C';return colors.length>1?'M':colors[0]}
+async function openContainer(id){const key='container-'+id;if(windowsState[key]){front(key);return}const r=await fetch('/desktop/container/'+id),d=await r.json();if(!d.ok){toast(d.error);return}const el=shellWindow(key,d.container.name,'container-window');windowsState[key].data=d;windowsState[key].filterColor='all';windowsState[key].filterType='all';renderContainer(key)}
+function renderContainer(key){const s=windowsState[key],d=s.data,el=document.querySelector('#win-'+CSS.escape(key));if(!el)return;
+ const types=[...new Set(d.cards.map(c=>(c.type_line||'Card').split(' — ')[0]))].sort(),colors=[...new Set(d.cards.map(c=>primaryColor(c.colors)))].sort();
+ const visible=d.cards.filter(c=>(s.filterColor==='all'||primaryColor(c.colors)===s.filterColor)&&(s.filterType==='all'||(c.type_line||'Card').split(' — ')[0]===s.filterType));
+ const deck=d.container.kind==='deck'?`<div class="deck-actions"><a href="/containers/${d.container.id}">Deck Manager</a><a href="/add?container_id=${d.container.id}">Add Card</a></div>`:'';
+ const cards=visible.length?visible.map(c=>`<div class="card-tile ${c.is_missing?'missing':''}" draggable="${!c.is_missing&&!c.loan_transaction_id}" data-item="${c.item_id}">${c.image_url?`<img src="${esc(c.image_url)}">`:''}<div class="card-info"><div class="card-name">${esc(c.name)}</div><div class="card-type">${esc(c.type_line)}</div><div class="card-meta">×${c.quantity}${c.is_missing?' · missing':''}${c.loan_transaction_id?' · borrowed':''}</div></div></div>`).join(''):'<div class="empty">No cards here.</div>';
+ el.querySelector('.window-body').innerHTML=`<div class="window-toolbar">Color <select data-color><option value="all">All</option>${colors.map(x=>`<option ${s.filterColor===x?'selected':''}>${x}</option>`).join('')}</select> Type <select data-type><option value="all">All</option>${types.map(x=>`<option ${s.filterType===x?'selected':''}>${esc(x)}</option>`).join('')}</select><span class="toolbar-count">${visible.length}/${d.cards.length}</span></div><div class="container-content">${deck}<div class="card-grid">${cards}</div></div>`;
+ el.querySelector('[data-color]').onchange=e=>{s.filterColor=e.target.value;renderContainer(key)};el.querySelector('[data-type]').onchange=e=>{s.filterType=e.target.value;renderContainer(key)};
+ el.querySelectorAll('.card-tile[draggable="true"]').forEach(t=>t.ondragstart=e=>{dragItem=+t.dataset.item;dragFrom=d.container.id;e.dataTransfer.effectAllowed='move'});
+ el.ondragover=e=>{if(d.container.kind!=='deck'&&dragItem){e.preventDefault();el.classList.add('drag-target')}};el.ondragleave=()=>el.classList.remove('drag-target');el.ondrop=e=>{e.preventDefault();el.classList.remove('drag-target');moveCard(d.container.id)}
+}
+async function refreshContainer(id){const key='container-'+id;if(!windowsState[key])return;const r=await fetch('/desktop/container/'+id),d=await r.json();if(d.ok){windowsState[key].data=d;renderContainer(key)}}
+async function moveCard(target){if(!dragItem||dragFrom===target)return;const r=await fetch('/desktop/move',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({item_id:dragItem,target_container_id:+target})}),d=await r.json();if(!d.ok){toast(d.error);return}await refreshContainer(dragFrom);await refreshContainer(+target);dragItem=null;dragFrom=null;toast('Card moved')}
+async function openFolder(id){const key='folder-'+id;if(windowsState[key]){front(key);return}const r=await fetch('/desktop/folder/'+id),d=await r.json();if(!d.ok){toast(d.error);return}const el=shellWindow(key,d.folder.name,'folder-window');windowsState[key].folder=d.folder;windowsState[key].containers=d.containers;renderFolder(key)}
+function containerGlyph(c){return `<div class="mini-shape shape-${esc(c.kind)}">${c.kind==='deck'?'<div class="cb"></div><div class="cb"></div><div class="cb"></div>':''}</div>`}
+function renderFolder(key){const s=windowsState[key],el=document.querySelector('#win-'+CSS.escape(key));const items=s.containers.map(c=>`<div class="icon container-icon folder-contained" draggable="true" data-id="${c.id}" data-kind="${esc(c.kind)}"><div class="icon-glyph">${containerGlyph(c)}</div><div class="icon-label">${esc(c.name)}</div><div class="icon-count">${c.card_count} cards</div></div>`).join('')||'<div class="empty">Drop decks, binders, or boxes into this folder.</div>';
+ el.querySelector('.window-body').innerHTML=`<div class="folder-toolbar"><button data-new-container>+ Container</button><button data-delete-folder class="danger-small">Delete Folder</button></div><div class="folder-grid">${items}</div>`;
+ el.querySelectorAll('.container-icon').forEach(i=>{i.ondblclick=()=>openContainer(+i.dataset.id);i.ondragstart=e=>{dragContainer=+i.dataset.id;e.dataTransfer.effectAllowed='move'}});
+ el.ondragover=e=>{if(dragContainer){e.preventDefault();el.classList.add('drag-target')}};el.ondragleave=()=>el.classList.remove('drag-target');el.ondrop=e=>{e.preventDefault();el.classList.remove('drag-target');moveContainerToFolder(dragContainer,s.folder.id)};
+ el.querySelector('[data-new-container]').onclick=()=>{document.querySelector('#new-container [name=folder_id]').value=s.folder.id;document.querySelector('#new-container').showModal()};
+ el.querySelector('[data-delete-folder]').onclick=async()=>{if(!confirm('Delete this folder? Its containers will return to the desktop.'))return;await fetch('/desktop/folder/'+s.folder.id+'/delete',{method:'POST'});location.reload()}
+}
+async function moveContainerToFolder(containerId,folderId){if(!containerId)return;const r=await fetch('/desktop/container-folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({container_id:containerId,folder_id:folderId})}),d=await r.json();if(!d.ok){toast(d.error);return}location.reload()}
+function bindDesktopIcons(){document.querySelectorAll('.container-icon[data-id]').forEach(i=>{i.ondblclick=()=>openContainer(+i.dataset.id);i.ondragstart=e=>{dragContainer=+i.dataset.id;e.dataTransfer.effectAllowed='move'};i.ondragover=e=>{if(dragItem&&i.dataset.kind!=='deck'){e.preventDefault();i.classList.add('dragover')}};i.ondragleave=()=>i.classList.remove('dragover');i.ondrop=e=>{e.preventDefault();i.classList.remove('dragover');if(dragItem)moveCard(+i.dataset.id)}});document.querySelectorAll('.folder-icon').forEach(i=>{i.ondblclick=()=>openFolder(+i.dataset.folderId);i.ondragover=e=>{if(dragContainer){e.preventDefault();i.classList.add('dragover')}};i.ondragleave=()=>i.classList.remove('dragover');i.ondrop=e=>{e.preventDefault();i.classList.remove('dragover');moveContainerToFolder(dragContainer,+i.dataset.folderId)}})}
+bindDesktopIcons();
+document.querySelectorAll('[data-app-window]').forEach(b=>b.onclick=()=>openAppWindow(b.dataset.appWindow,b.dataset.url));
+const containerDlg=document.querySelector('#new-container'),folderDlg=document.querySelector('#new-folder');
+document.querySelector('#new-folder-icon').onclick=()=>folderDlg.showModal();
+document.querySelector('#new-folder-menu').onclick=()=>folderDlg.showModal();
+document.querySelector('#new-container-menu').onclick=()=>containerDlg.showModal();
+document.querySelector('#cancel-new').onclick=()=>containerDlg.close();
+document.querySelector('#cancel-folder').onclick=()=>folderDlg.close();
+document.querySelector('#new-kind').onchange=e=>document.querySelector('#format-row').style.display=e.target.value==='deck'?'block':'none';
+document.querySelector('#new-folder-form').onsubmit=async e=>{e.preventDefault();const name=document.querySelector('#new-folder-name').value.trim();if(!name)return;const r=await fetch('/desktop/folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})}),d=await r.json();if(!d.ok){toast(d.error);return}location.reload()};
+document.querySelector('#brand-button').onclick=()=>{Object.keys(windowsState).forEach(closeWin)};
+document.querySelector('#desktop').ondragover=e=>{if(dragContainer){e.preventDefault()}};
+document.querySelector('#desktop').ondrop=e=>{if(!dragContainer)return;e.preventDefault();moveContainerToFolder(dragContainer,null)};

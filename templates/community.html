@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Community</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Community</title><link rel="stylesheet" href="/static/style.css"><style>.embedded-page .nav-bar{display:none!important}.embedded-page{padding-top:12px!important}</style></head><body class="{% if request.args.get('embed') == '1' %}embedded-page{% endif %}">
 <div class="nav-bar"><a href="/">Collection</a><a href="/tracker">Card Tracker</a><a href="/community">Community</a></div><main class="page-shell">
 <h1>Community</h1><p class="hint">Friends and private mini-profiles for people outside the app.</p>
 <div class="community-friends-layout"><section class="community-card"><h2>Add a friend</h2><form method="post" action="/community/add-friend"><label>Email<input type="email" name="email" required></label><button>Send friend request</button></form></section>

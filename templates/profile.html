@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
-<head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Profile</title><link rel="stylesheet" href="/static/style.css"></head>
-<body>
+<head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Profile</title><link rel="stylesheet" href="/static/style.css"><style>.embedded-page .nav-bar{display:none!important}.embedded-page{padding-top:12px!important}</style></head>
+<body class="{% if request.args.get('embed') == '1' %}embedded-page{% endif %}">
 <div class="nav-bar"><a href="/">Collection</a><a href="/tracker">Card Tracker</a><a href="/community">Community</a></div>
 <h1>Profile</h1>
 <section class="panel profile-page-card">

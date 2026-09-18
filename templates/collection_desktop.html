@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MTG Desktop</title>
+<link rel="stylesheet" href="/static/desktop.css">
+</head>
+<body>
+<header id="hotbar">
+  <div class="hot-left">
+    <button class="brand-button" id="brand-button" title="Desktop">{{ current_username or session.get("email","MTG") }}</button>
+    <button class="hot-button" data-app-window="tracker" data-url="/tracker?embed=1">Card Tracker</button>
+  </div>
+  <div class="hot-right">
+    <button class="hot-button" data-app-window="community" data-url="/community?embed=1">Community{% if notification_count %}<span class="hot-badge">{{ notification_count }}</span>{% endif %}</button>
+    <details id="menu-dropdown">
+      <summary class="hot-button">Menu ▾</summary>
+      <div class="hot-menu">
+        <button type="button" id="new-container-menu">New Container</button>
+        <button type="button" id="new-folder-menu">New Folder</button>
+        <button type="button" data-app-window="notifications" data-url="/notifications?embed=1">Notifications{% if notification_count %} ({{ notification_count }}){% endif %}</button>
+        <a href="/history">History</a>
+        <a href="/settings">Settings</a>
+        <a href="/logout" class="danger-link">Log out</a>
+      </div>
+    </details>
+    <button class="profile-button" data-app-window="profile" data-url="/profile?embed=1" title="Profile">
+      <span class="profile-avatar">{{ (current_username or session.get("email","U"))[0]|upper }}</span>
+    </button>
+  </div>
+</header>
+
+<main id="desktop" aria-label="Collection desktop">
+  <div id="root-icons" class="desktop-icon-layer">
+    {% for f in folders %}
+    <div class="icon folder-icon" draggable="true" data-folder-id="{{ f.id }}" data-name="{{ f.name|e }}">
+      <div class="icon-glyph"><div class="shape-folder"></div></div>
+      <div class="icon-label">{{ f.name }}</div>
+      <div class="icon-count">Folder</div>
+    </div>
+    {% endfor %}
+
+    {% for c in containers if not c.folder_id %}
+    <div class="icon container-icon" draggable="true" data-id="{{ c.id }}" data-kind="{{ c.kind }}" data-name="{{ c.name|e }}">
+      <div class="icon-glyph">
+        <div class="shape-{{ c.kind }}">{% if c.kind=='deck' %}<div class="cb"></div><div class="cb"></div><div class="cb"></div>{% endif %}</div>
+      </div>
+      <div class="icon-label">{{ c.name }}</div>
+      <div class="icon-count">{{ c.card_count }} cards</div>
+    </div>
+    {% endfor %}
+
+    <div class="icon action-icon" id="new-folder-icon">
+      <div class="icon-glyph plus-glyph">+</div><div class="icon-label">New Folder</div>
+    </div>
+  </div>
+</main>
+
+<div id="taskbar"></div>
+<div id="desktop-toast"></div>
+
+<dialog id="new-container">
+<form method="post">
+<h3>New container</h3>
+<label>Name<input name="name" required></label>
+<label>Type<select name="kind" id="new-kind"><option value="deck">Deck</option><option value="binder">Binder</option><option value="box">Box</option></select></label>
+<label id="format-row">Format<select name="format">{% for f in formats %}<option>{{ f }}</option>{% endfor %}</select></label>
+<label>Store in folder<select name="folder_id"><option value="">Desktop</option>{% for f in folders %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}</select></label>
+<div class="modal-actions"><button type="button" id="cancel-new">Cancel</button><button>Create</button></div>
+</form>
+</dialog>
+
+<dialog id="new-folder">
+<form id="new-folder-form">
+<h3>New folder</h3>
+<label>Name<input name="name" id="new-folder-name" required placeholder="e.g. Commander Decks"></label>
+<div class="modal-actions"><button type="button" id="cancel-folder">Cancel</button><button>Create</button></div>
+</form>
+</dialog>
+
+<script src="/static/desktop.js"></script>
+</body></html>
