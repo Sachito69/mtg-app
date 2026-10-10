@@ -13,3 +13,27 @@ describe('deck progress without inventory',()=>{
  it('ports old mixed-type priority and groups only front faces',()=>{expect(primaryType('Artifact Creature — Golem')).toBe('Creature');expect(primaryType('Artifact Land')).toBe('Land');expect(primaryType('Instant // Creature — Human')).toBe('Instant');});
  it('handles separate front/back images',()=>{const c=normalizeCard({id:'a',oracle_id:'b',name:'Front // Back',card_faces:[{image_uris:{normal:'https://cards.scryfall.io/front.jpg'},mana_cost:'{U}'},{image_uris:{normal:'https://cards.scryfall.io/back.jpg'}}]});expect(c.image_url).toContain('front.jpg');expect(c.back_image_url).toContain('back.jpg');expect(c.mana_cost).toBe('{U}');});
 });
+
+import {availableBoards,deckProgress,filterDecks} from '../src/logic';
+import type {Deck} from '../src/types';
+describe('deck boards and filters',()=>{
+ it('commander has a commander board, constructed has sideboard',()=>{
+  expect(availableBoards('commander')).toEqual(['commander','main','maybeboard']);
+  for(const format of ['standard','modern','pioneer','legacy','vintage','pauper'] as const){expect(availableBoards(format)).toEqual(['main','sideboard','maybeboard']);}
+ });
+ it('empty decks are incomplete and maybeboard does not change completion',()=>{
+  expect(deckProgress([]).complete).toBe(false);
+  expect(deckProgress([{quantity:4,quantity_owned:4,board:'main'},{quantity:2,quantity_owned:0,board:'maybeboard'}] as Entry[]).complete).toBe(true);
+  expect(deckProgress([{quantity:4,quantity_owned:4,board:'main'},{quantity:1,quantity_owned:0,board:'sideboard'}] as Entry[]).complete).toBe(false);
+ });
+ it('filters completion and format, with inclusive creation dates',()=>{
+  const decks=[{id:'a',format:'modern',created_at:'2026-10-10T12:00:00',updated_at:'2026-10-11T12:00:00'},{id:'b',format:'standard',created_at:'2026-10-09T12:00:00',updated_at:'2026-10-12T12:00:00'}] as Deck[];
+  const rows=[{deck_id:'a',quantity:4,quantity_owned:4,board:'main'},{deck_id:'b',quantity:4,quantity_owned:3,board:'main'}] as Entry[];
+  const base={completion:'all',format:'',from:'',to:'',sort:'newest'};
+  expect(filterDecks(decks,rows,{...base,completion:'complete'}).map(d=>d.id)).toEqual(['a']);
+  expect(filterDecks(decks,rows,{...base,completion:'incomplete'}).map(d=>d.id)).toEqual(['b']);
+  expect(filterDecks(decks,rows,{...base,format:'standard'}).map(d=>d.id)).toEqual(['b']);
+  expect(filterDecks(decks,rows,{...base,from:'2026-10-10',to:'2026-10-10'}).map(d=>d.id)).toEqual(['a']);
+  expect(filterDecks(decks,rows,{...base,sort:'updated'}).map(d=>d.id)).toEqual(['b','a']);
+ });
+});
